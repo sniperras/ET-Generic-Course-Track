@@ -1,5 +1,4 @@
 <?php
-// admin/index.php
 declare(strict_types=1);
 if (session_status() === PHP_SESSION_NONE) session_start();
 
@@ -12,17 +11,16 @@ $allowed_pages = [
     'import', 'import_training', 'training_disputes_manage','1&status=open', 'users'
 ];
 
-$page_raw = $_GET['page'] ?? 'dashboard';
-$page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'dashboard';
+// Change default page to 'records'
+$page_raw = $_GET['page'] ?? 'records';
+$page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'records';
 
 // require admin (redirect or JSON response for AJAX)
 requireAdmin();
 
-// If AJAX XHR and page wants a page-only include, serve page-only (no layout).
-// We only special-case the disputes page here if you need to include it via AJAX.
+// AJAX special handling
 if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
     if ($page === 'training_disputes_manage') {
-        // include the page file directly and exit — that page must handle output modes itself
         include __DIR__ . '/training_disputes_manage.php';
         exit;
     }
@@ -83,13 +81,14 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
       switch ($page) {
           case 'employees':       include __DIR__ . '/employees.php';      break;
           case 'courses':         include __DIR__ . '/courses.php';        break;
-          case 'records':         include __DIR__ . '/records.php';        break;
+          case 'dashboard':       include __DIR__ . '/dashboard.php';      break;
           case 'import':          include __DIR__ . '/import.php';         break;
           case 'import_training': include __DIR__ . '/import_training.php';break;
           case 'training_disputes_manage': include __DIR__ . '/training_disputes_manage.php'; break;
-          case '1&status=open': include __DIR__ . '/training_disputes_manage.php?1&status=open'; break;
+          case '1&status=open':   include __DIR__ . '/training_disputes_manage.php?1&status=open'; break;
           case 'users':           include __DIR__ . '/users.php';          break;
-          default:                include __DIR__ . '/dashboard.php';      break;
+          case 'records':         include __DIR__ . '/records.php';        break;
+          default:                include __DIR__ . '/records.php';        break;
       }
       ?>
     </main>

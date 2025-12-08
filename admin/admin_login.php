@@ -62,25 +62,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php endif; ?>
 
             <form method="POST">
-                <div class="mb-6">
-                    <label class="block text-gray-700 font-semibold mb-2">Username</label>
-                    <input type="text" name="username" required autocomplete="off"
-                           class="w-full px-5 py-4 border-2 border-gray-300 rounded-xl focus:border-blue-600 focus:outline-none transition font-mono text-lg"
-                           placeholder="admin">
-                </div>
+    <div class="mb-6">
+        <label class="block text-gray-700 font-semibold mb-2">Username</label>
+        <input type="text" name="username" required autocomplete="off"
+               class="w-full px-5 py-4 border-2 border-gray-300 rounded-xl focus:border-blue-600 focus:outline-none transition font-mono text-lg"
+               placeholder="username">
+    </div>
 
-                <div class="mb-8">
-                    <label class="block text-gray-700 font-semibold mb-2">Password</label>
-                    <input type="password" name="password" required
-                           class="w-full px-5 py-4 border-2 border-gray-300 rounded-xl focus:border-blue-600 focus:outline-none transition text-lg"
-                           placeholder="••••••••">
-                </div>
+    <div class="mb-8">
+        <label class="block text-gray-700 font-semibold mb-2">Password</label>
+        <input type="password" name="password" required
+               class="w-full px-5 py-4 border-2 border-gray-300 rounded-xl focus:border-blue-600 focus:outline-none transition text-lg"
+               placeholder="••••••••">
+    </div>
 
-                <button type="submit"
-                        class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold text-xl py-5 rounded-xl transition shadow-lg transform hover:scale-105">
-                    Login
-                </button>
-            </form>
+    <button type="submit"
+            class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold text-xl py-5 rounded-xl transition shadow-lg transform hover:scale-105">
+        Login
+    </button>
+</form>
+
+<!-- Tips Section -->
+<div class="mt-8 bg-gradient-to-r from-blue-50 to-blue-100 border-l-4 border-blue-600 rounded-xl p-6 shadow-md">
+    <h2 class="text-lg font-semibold text-blue-900 mb-3 flex items-center">
+        <svg class="w-6 h-6 mr-2 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M12 20h.01M12 4h.01M4 12h.01M20 12h.01M12 12h.01"/>
+        </svg>
+        Helpful Tips
+    </h2>
+    <ul class="space-y-2 text-gray-700">
+       
+        <li class="flex items-start">
+            <span class="text-blue-600 font-bold mr-2">•</span>
+            First login may take longer as the system prepares reports.
+        </li>
+      
+      
+        <li class="flex items-start">
+            <span class="text-blue-600 font-bold mr-2">•</span>
+            Contact IT support if you encounter repeated login issues.
+        </li>
+    </ul>
+</div>
+
 
           
         </div>
