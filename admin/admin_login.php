@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Login - GenericCourseTrack</title>
+    <title>Admin Login - Generic Course Track</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
@@ -30,16 +30,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </style>
 </head>
 
-<body class="bg-gradient-to-br from-blue-900 to-blue-700 min-h-screen flex flex-col">
+<body class="bg-gradient-to-br from-cream-900 to-blue-700 min-h-screen flex flex-col">
 
     <!-- Navbar -->
-    <nav class="bg-blue-950/80 backdrop-blur-md shadow-lg">
+    <nav class="bg-blue-900 text-white shadow">
         <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
             <a href="../index.php" class="flex items-center space-x-3 text-white hover:text-blue-200 transition">
                 <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="true" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
                 </svg>
-                <span class="font-bold text-xl">GenericCourseTrack</span>
+                <span class="font-bold text-xl">Generic Course Track</span>
             </a>
             <a href="../index.php" class="text-white hover:text-blue-200 font-medium px-4 py-2 rounded-lg transition">
                 ← Back to Home
@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-md">
             <div class="text-center mb-8">
                 <h1 class="text-3xl font-bold text-gray-800">Admin Login</h1>
-                <p class="text-gray-600 mt-2">GenericCourseTrack HR Panel</p>
+                <p class="text-gray-600 mt-2">Generic Course Track HR Panel</p>
             </div>
 
             <?php if ($error): ?>
@@ -82,11 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </button>
             </form>
 
-            <div class="mt-8 text-center text-sm text-gray-500">
-                <strong>Demo Credentials:</strong><br>
-                admin / EthiopianAdmin2025<br>
-                hr_user / EthiopianHR2025
-            </div>
+          
         </div>
     </div>
 
@@ -94,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <footer class="bg-blue-950 text-gray-300 py-8 mt-auto">
         <div class="max-w-7xl mx-auto px-6 text-center">
             <p class="text-sm">
-                © 2025 <span class="font-semibold text-white">GenericCourseTrack</span>. All rights reserved.
+                © 2025 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
             </p>
             <p class="text-xs mt-2 opacity-75">
                 HR Management System • Powered by Ethiopian Developers
