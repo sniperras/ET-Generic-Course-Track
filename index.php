@@ -5,6 +5,7 @@ require_once __DIR__ . '/include/db_connect.php';
 
 // Config
 const DEFAULT_TO_BE_DAYS = 90;
+const DISPUTE_COOLDOWN_DAYS = 7; // cooldown period
 
 /* --------- Helpers --------- */
 function safe_table(string $t): bool {
@@ -52,6 +53,12 @@ $emp_id_submitted = '';
 $results = [];
 $error = '';
 
+$employee_dispute_cooldown = [
+    'can_raise' => true,
+    'cooldown_until' => null, // DateTime or null
+    'seconds_left' => 0
+];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !isset($_POST['raise_dispute'])) {
     $emp_id_submitted = trim((string)($_POST['employee_id'] ?? ''));
     if ($emp_id_submitted === '') {
@@ -64,6 +71,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
             $employee = null;
             $error = "Employee ID not found or inactive.";
         } else {
+            // check dispute cooldown for this employee
+            try {
+                $stmt = $pdo->prepare("SELECT created_at FROM training_disputes WHERE employee_id = ? ORDER BY created_at DESC LIMIT 1");
+                $stmt->execute([$employee['employee_id']]);
+                $last = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($last && !empty($last['created_at'])) {
+                    $lastDt = new DateTimeImmutable($last['created_at']);
+                    $coolUntil = $lastDt->add(new DateInterval('P' . DISPUTE_COOLDOWN_DAYS . 'D'));
+                    $now = new DateTimeImmutable('now');
+                    if ($coolUntil > $now) {
+                        $employee_dispute_cooldown['can_raise'] = false;
+                        $employee_dispute_cooldown['cooldown_until'] = $coolUntil;
+                        $employee_dispute_cooldown['seconds_left'] = (int)$now->diff($coolUntil)->format('%r%s');
+                        // note: %r%s isn't standard for seconds; compute properly:
+                        $employee_dispute_cooldown['seconds_left'] = (int)($coolUntil->getTimestamp() - $now->getTimestamp());
+                    }
+                }
+            } catch (Exception $e) {
+                // ignore, leave can_raise true
+            }
+
             foreach ($courses as $c) {
                 $table = $c['table_name'];
                 $course_id = (int)$c['course_id'];
@@ -148,6 +176,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
         $d = trim((string)$d);
         if ($d === '') $normalized_dates[] = null;
         else { $ts = strtotime($d); if ($ts === false) $normalized_dates[] = null; else $normalized_dates[] = date('Y-m-d', $ts); }
+    }
+
+    // SERVER-SIDE COOLDOWN CHECK (defense in depth)
+    if ($emp_id !== '') {
+        try {
+            $stmt = $pdo->prepare("SELECT created_at FROM training_disputes WHERE employee_id = ? ORDER BY created_at DESC LIMIT 1");
+            $stmt->execute([$emp_id]);
+            $last = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($last && !empty($last['created_at'])) {
+                $lastDt = new DateTimeImmutable($last['created_at']);
+                $coolUntil = $lastDt->add(new DateInterval('P' . DISPUTE_COOLDOWN_DAYS . 'D'));
+                $now = new DateTimeImmutable('now');
+                if ($coolUntil > $now) {
+                    $errors_dispute[] = "please fill try after 1 week you already use your quota";
+                }
+            }
+        } catch (Exception $e) {
+            // if DB problem, we won't block on that basis; but log or add error if necessary
+            // $errors_dispute[] = "Server error checking dispute cooldown: " . $e->getMessage();
+        }
     }
 
     if (empty($errors_dispute)) {
@@ -248,7 +296,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 </div>
 
                 <div class="mb-6">
-                    <button id="openDisputeBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">Raise Dispute about Training</button>
+                    <?php
+                        // Prepare data attributes so JS can decide whether to allow opening the modal.
+                        $canRaise = $employee_dispute_cooldown['can_raise'] ? '1' : '0';
+                        $cooldownUntilAttr = '';
+                        $secondsLeftAttr = '0';
+                        if (!$employee_dispute_cooldown['can_raise'] && $employee_dispute_cooldown['cooldown_until'] instanceof DateTimeImmutable) {
+                            $cooldownUntilAttr = $employee_dispute_cooldown['cooldown_until']->format('Y-m-d\TH:i:s');
+                            $secondsLeftAttr = (string) max(0, (int)$employee_dispute_cooldown['seconds_left']);
+                        }
+                    ?>
+                    <button id="openDisputeBtn"
+                        data-can-raise="<?= h($canRaise) ?>"
+                        data-cooldown-until="<?= h($cooldownUntilAttr) ?>"
+                        data-seconds-left="<?= h($secondsLeftAttr) ?>"
+                        class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">Raise Dispute about Training</button>
                 </div>
 
                 <div class="overflow-x-auto">
@@ -364,7 +426,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
     </div>
 </footer>
 
-<!-- JS: modal + synchronize courses <-> date inputs + AJAX submit -->
+<!-- JS: modal + synchronize courses <-> date inputs + AJAX submit + cooldown flash -->
 <script>
 (function(){
     const openBtn = document.getElementById('openDisputeBtn');
@@ -381,7 +443,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
     function openModal(){ modal.classList.remove('hidden'); modal.classList.add('flex'); syncDates(); modalErrors.innerHTML=''; }
     function closeModal(){ modal.classList.add('hidden'); modal.classList.remove('flex'); }
 
-    openBtn?.addEventListener('click', openModal);
+    openBtn?.addEventListener('click', function(e){
+        // client-side cooldown check
+        const canRaise = openBtn.dataset.canRaise === '1';
+        if (!canRaise) {
+            // show the flash message for 10 seconds
+            showTemporaryFlash(false, 'Please try again after one week, as you have already used your quota.', 10000);
+            return;
+        }
+        openModal();
+    });
+
     closeBtn?.addEventListener('click', closeModal);
     modal?.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
 
@@ -422,6 +494,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
         div.className = 'mb-4 p-4 rounded ' + (success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
         div.textContent = message;
         ajaxMessageContainer.appendChild(div);
+    }
+
+    // show temporary flash in ajaxMessageContainer for specified duration (ms)
+    function showTemporaryFlash(success, message, durationMs) {
+        ajaxMessageContainer.innerHTML = '';
+        const div = document.createElement('div');
+        div.className = 'mb-4 p-4 rounded ' + (success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
+        div.textContent = message;
+        ajaxMessageContainer.appendChild(div);
+        // auto-hide after durationMs
+        setTimeout(() => {
+            if (ajaxMessageContainer.contains(div)) {
+                ajaxMessageContainer.removeChild(div);
+            }
+        }, durationMs);
     }
 
     disputeForm?.addEventListener('submit', function(e){
@@ -466,16 +553,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 disputeForm.reset();
                 hiddenDates.value = '[]';
                 syncDates();
+                // Since a dispute was added, disable further attempts on client (cooldown starts)
+                openBtn.dataset.canRaise = '0';
             } else {
-                // show errors inside modal (do not close)
+                // If server returned the cooldown message, show it as a temporary flash as well
                 const errs = data.errors || [data.message || 'Submission failed'];
-                const ul = document.createElement('ul'); ul.className='list-disc pl-5';
-                errs.forEach(err => {
-                    const li = document.createElement('li'); li.textContent = err; ul.appendChild(li);
-                });
-                modalErrors.innerHTML = '';
-                const box = document.createElement('div'); box.className='mb-4 p-3 rounded bg-red-50 text-red-800'; box.appendChild(ul);
-                modalErrors.appendChild(box);
+                // if the only error is the cooldown message, show as temporary flash for 10s and do not close modal
+                if (errs.length === 1 && errs[0].toLowerCase().includes('please fill try after 1 week')) {
+                    showTemporaryFlash(false, errs[0], 10000);
+                    // Also show inside modal
+                    const ul = document.createElement('ul'); ul.className='list-disc pl-5';
+                    const li = document.createElement('li'); li.textContent = errs[0]; ul.appendChild(li);
+                    modalErrors.innerHTML = '';
+                    const box = document.createElement('div'); box.className='mb-4 p-3 rounded bg-red-50 text-red-800'; box.appendChild(ul);
+                    modalErrors.appendChild(box);
+                } else {
+                    // show errors inside modal (do not close)
+                    const ul = document.createElement('ul'); ul.className='list-disc pl-5';
+                    errs.forEach(err => {
+                        const li = document.createElement('li'); li.textContent = err; ul.appendChild(li);
+                    });
+                    modalErrors.innerHTML = '';
+                    const box = document.createElement('div'); box.className='mb-4 p-3 rounded bg-red-50 text-red-800'; box.appendChild(ul);
+                    modalErrors.appendChild(box);
+                }
             }
         })
         .catch(err => {
@@ -487,6 +588,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
     });
 
     document.addEventListener('DOMContentLoaded', syncDates);
+
 })();
 </script>
 

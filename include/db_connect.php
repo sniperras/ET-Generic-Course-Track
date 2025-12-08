@@ -1,9 +1,9 @@
 <?php
 // db_connect.php - CHANGE ONLY THESE 4 LINES WITH YOUR HOSTING DETAILS
-$host     = 'sql211.infinityfree.com';                   // ← YOUR DB HOST
-$dbname   = 'if0_40621574_genericcoursetrack';           // ← YOUR DATABASE NAME
-$username = 'if0_40621574';                              // ← YOUR DB USERNAME
-$password = 'QllUAVmSRmK8';                              // ← YOUR DB PASSWORD (from hosting panel)
+$host     = 'localhost';                   // ← YOUR DB HOST
+$dbname   = 'genericcoursetrack';           // ← YOUR DATABASE NAME
+$username = 'root';                              // ← YOUR DB USERNAME
+$password = '';                              // ← YOUR DB PASSWORD (from hosting panel)
 
 try {
     // Create PDO connection
