@@ -401,7 +401,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                     <div id="modalErrors" class="mt-4"></div>
 
                     <div class="mt-6 flex items-center justify-between">
-                        <div class="text-sm text-gray-600">We will send your dispute to the MRO record officer for review.</div>
+                        <div class="text-sm text-gray-600">We will send your dispute to the MRO HR record officer for review.</div>
                         <div class="flex gap-3">
                             <button type="button" id="addCourseRowBtn" class="bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded">+ Add Empty Course Row</button>
                             <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold">Submit Dispute</button>
@@ -422,7 +422,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 <footer class="bg-blue-950 text-gray-300 py-8 mt-auto">
     <div class="max-w-7xl mx-auto px-6 text-center">
         <p class="text-sm">© <?= date('Y') ?> <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.</p>
-        <p class="text-xs mt-2 opacity-75">HR Management System • Powered by Ethiopian Developers</p>
+        <p class="text-xs mt-2 opacity-75">MRO HR Management System • Powered by Ethiopian Developers</p>
     </div>
 </footer>
 
