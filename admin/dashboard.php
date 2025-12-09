@@ -1,6 +1,4 @@
 <?php
-// admin/dashboard_stats.php
-// Optimized Dashboard with charts, drill, CSV export. Aggregates all stats in bulk.
 
 if (session_status() === PHP_SESSION_NONE) session_start();
 ob_start();

@@ -118,7 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 © 2025 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
             </p>
             <p class="text-xs mt-2 opacity-75">
-                HR Management System • Powered by Ethiopian Developers
+                MRO HR Management System • Powered by Ethiopian Developers
             </p>
         </div>
     </footer>
