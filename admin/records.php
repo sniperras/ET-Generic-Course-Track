@@ -111,6 +111,25 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
         </div>
     <?php endif; ?>
 
+    <!-- Export button (moved ABOVE Enter Employee ID). Disabled until employee is loaded. -->
+    <div class="mb-6 flex justify-center">
+        <?php if ($employee): ?>
+            <a href="export_pdf.php?emp_id=<?= urlencode($emp_id) ?>"
+               target="_blank"
+               class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition">
+               Export to PDF
+            </a>
+        <?php else: ?>
+            <a href="#"
+               onclick="return false;"
+               aria-disabled="true"
+               title="Load an employee first"
+               class="bg-red-600 text-white font-bold py-3 px-8 rounded-xl shadow-lg transition opacity-50 pointer-events-none cursor-not-allowed">
+               Export to PDF
+            </a>
+        <?php endif; ?>
+    </div>
+
     <form method="GET" class="mb-12 bg-white rounded-2xl shadow-xl p-8">
         <input type="hidden" name="page" value="records">
         <div class="flex flex-col md:flex-row gap-6 items-end">
@@ -123,6 +142,9 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                 Load Employee
             </button>
         </div>
+       <div class="flex justify-between items-center mb-8">
+   
+</div>
     </form>
 
     <?php if ($emp_id && !$employee): ?>

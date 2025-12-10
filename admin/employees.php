@@ -3,15 +3,71 @@ require_once '../include/db_connect.php';
 require_once '../include/auth.php';
 requireAdmin();
 
-// Flash message
-$message = $_SESSION['emp_message'] ?? null;
-unset($_SESSION['emp_message']);
-
-// Search query
+// --- EARLY: handle Export to CSV BEFORE any HTML/output ---
 $search = trim($_GET['search'] ?? '');
 $where = '';
 $params = [];
 if ($search !== '') {
+    $where = "WHERE employee_id LIKE ? OR full_name LIKE ? OR position LIKE ? OR department LIKE ? OR fleet LIKE ? OR cost_center LIKE ?";
+    $like = "%$search%";
+    $params = [$like, $like, $like, $like, $like, $like];
+}
+
+if (isset($_GET['export'])) {
+    // Clean any previous output so headers can be sent reliably
+    if (ob_get_level()) {
+        ob_end_clean();
+    }
+
+    // CSV headers for download
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="employees_' . date('Y-m-d') . '.csv"');
+    // UTF-8 BOM for Excel
+    echo "\xEF\xBB\xBF";
+
+    $output = fopen('php://output', 'w');
+
+    // Header row (explicit columns, in the order we output them)
+    fputcsv($output, ['Employee ID', 'Full Name', 'Position', 'Department', 'Fleet', 'Cost Center', 'Status', 'Created At', 'Updated At']);
+
+    // Build query (no LIMIT) so export contains all matching rows
+    if ($where) {
+        $query = "SELECT employee_id, full_name, position, department, fleet, cost_center, is_active, created_at, updated_at FROM employees $where ORDER BY COALESCE(updated_at, created_at) DESC";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute($params);
+    } else {
+        $query = "SELECT employee_id, full_name, position, department, fleet, cost_center, is_active, created_at, updated_at FROM employees ORDER BY COALESCE(updated_at, created_at) DESC";
+        $stmt = $pdo->query($query);
+    }
+
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        fputcsv($output, [
+            $row['employee_id'] ?? '',
+            $row['full_name'] ?? '',
+            $row['position'] ?? '',
+            $row['department'] ?? '',
+            $row['fleet'] ?? '',
+            $row['cost_center'] ?? '',
+            (isset($row['is_active']) && $row['is_active']) ? 'Active' : 'Inactive',
+            $row['created_at'] ?? '',
+            $row['updated_at'] ?? ''
+        ]);
+    }
+
+    fclose($output);
+    exit; // Important: stop further output (no HTML)
+}
+// --- END export block ---
+
+// ---------- rest of normal page logic starts here ----------
+
+// Flash message
+$message = $_SESSION['emp_message'] ?? null;
+unset($_SESSION['emp_message']);
+
+// If not set already, set $search / $where / $params for the page (we already computed above)
+$search = trim($_GET['search'] ?? $search);
+if ($search !== '' && empty($where)) {
     $where = "WHERE employee_id LIKE ? OR full_name LIKE ? OR position LIKE ? OR department LIKE ? OR fleet LIKE ? OR cost_center LIKE ?";
     $like = "%$search%";
     $params = [$like, $like, $like, $like, $like, $like];
@@ -81,39 +137,7 @@ if (isset($_GET['delete']) && $_GET['delete'] !== '') {
     exit;
 }
 
-// Export to CSV
-if (isset($_GET['export'])) {
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="employees_' . date('Y-m-d') . '.csv"');
-
-    $output = fopen('php://output', 'w');
-    fputcsv($output, ['Employee ID', 'Full Name', 'Position', 'Department', 'Fleet', 'Cost Center', 'Status', 'Created At', 'Updated At']);
-
-    if ($where) {
-        $query = "SELECT * FROM employees $where ORDER BY COALESCE(updated_at, created_at) DESC";
-        $stmt = $pdo->prepare($query);
-        $stmt->execute($params);
-    } else {
-        $query = "SELECT * FROM employees ORDER BY COALESCE(updated_at, created_at) DESC";
-        $stmt = $pdo->query($query);
-    }
-
-    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        fputcsv($output, [
-            $row['employee_id'],
-            $row['full_name'],
-            $row['position'] ?? '',
-            $row['department'] ?? '',
-            $row['fleet'] ?? '',
-            $row['cost_center'] ?? '',
-            isset($row['is_active']) && $row['is_active'] ? 'Active' : 'Inactive',
-            $row['created_at'] ?? '',
-            $row['updated_at'] ?? ''
-        ]);
-    }
-    fclose($output);
-    exit;
-}
+// The rest of your HTML page follows...
 ?>
 
 <h2 class="text-3xl font-bold mb-8">Manage Employees</h2>
