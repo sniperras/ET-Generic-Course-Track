@@ -19,7 +19,7 @@ All rights reserved.
 
 This software, including but not limited to its source code, documentation, database schema, system architecture, algorithms, business logic, user interface, visual design, workflows, configurations, and all associated materials (collectively, the "Software"), is the exclusive intellectual property of **Natnael Bizuneh Zenebe**.
 
-The Software is protected under the laws of the Federal Democratic Republic of Ethiopia and international copyright laws and treaties.
+The Software is protected under the laws of the **Federal Democratic Republic of Ethiopia** and applicable international copyright laws and treaties.
 
 ---
 
@@ -29,43 +29,43 @@ The Software is protected under the laws of the Federal Democratic Republic of E
 
 The following actions are strictly prohibited without prior written authorization from the copyright holder:
 
-* Using the Software for any purpose, commercial or non-commercial
-* Copying, reproducing, or storing the Software in any form
+* Using the Software for any purpose, whether commercial or non-commercial
+* Copying, reproducing, extracting, or storing the Software in any form or medium
 * Modifying, adapting, translating, or creating derivative works
 * Publishing, disclosing, or making the Software publicly available
-* Distributing, selling, sublicensing, leasing, or transferring the Software
-* Hosting, deploying, mirroring, reverse engineering, or integrating the Software into other systems
+* Distributing, selling, sublicensing, leasing, lending, or transferring the Software
+* Hosting, deploying, mirroring, reverse engineering, decompiling, or integrating the Software into other systems
 
-Access to the GitHub repository or any deployed instance does **not** constitute a license.
+Access to the GitHub repository, source files, or any deployed instance does **not** constitute a license or grant of rights.
 
 ---
 
 ## 4. No License Granted
 
-No license, right, or interest—whether express, implied, statutory, or otherwise—is granted under this License. Any use of the Software without explicit written permission is unlawful.
+No license, right, or interest—whether express, implied, statutory, or otherwise—is granted under this License. Any use of the Software without explicit prior written permission from the copyright holder is unlawful.
 
 ---
 
 ## 5. Governing Law and Jurisdiction
 
-This License shall be governed by and construed in accordance with the laws of the **Federal Democratic Republic of Ethiopia**, without regard to conflict of law principles.
+This License shall be governed by and construed in accordance with the laws of the **Federal Democratic Republic of Ethiopia**, without regard to its conflict of law principles.
 
-This Software is protected **worldwide** under international copyright conventions, including the **Berne Convention for the Protection of Literary and Artistic Works**.
+The Software is protected **worldwide** under international copyright conventions, including but not limited to the **Berne Convention for the Protection of Literary and Artistic Works**.
 
-Any dispute, claim, or legal action arising out of or relating to this Software or this License shall be subject to the **exclusive jurisdiction of the competent courts of the Federal Democratic Republic of Ethiopia**, unless otherwise agreed in writing by the copyright holder.
+Any dispute, claim, or legal action arising out of or relating to this Software or this License shall be subject to the **exclusive jurisdiction of the competent courts of the Federal Democratic Republic of Ethiopia**, unless otherwise expressly agreed in writing by the copyright holder.
 
 ---
 
 ## 6. Penalties for Unauthorized Use
 
-Unauthorized use of the Software constitutes a material breach of this License and may result in:
+Unauthorized use of the Software constitutes a **material breach** of this License and may result in, without limitation:
 
-* Immediate injunctive relief
-* Civil penalties to the maximum extent permitted by law
+* Immediate injunctive or equitable relief
+* Civil penalties to the maximum extent permitted by applicable law
 * Criminal prosecution where applicable
 * Seizure, deletion, or destruction of infringing copies and derivative works
 
-The copyright holder reserves the right to pursue all legal and equitable remedies.
+The copyright holder reserves the right to pursue **all available legal and equitable remedies**.
 
 ---
 
@@ -73,34 +73,36 @@ The copyright holder reserves the right to pursue all legal and equitable remedi
 
 Any infringing party shall be liable for, without limitation:
 
-* Actual damages, including loss of revenue and business opportunity
-* Statutory damages where available
-* Disgorgement of profits obtained through unauthorized use
-* Consequential and incidental damages
+* Actual damages, including loss of revenue and loss of business opportunity
+* Statutory damages, where available under applicable law
+* Disgorgement of profits obtained directly or indirectly from unauthorized use
+* Consequential, incidental, and indirect damages
 * Full reimbursement of legal fees, court costs, expert fees, and enforcement expenses
 
-Damages shall apply **per violation**, and continued infringement shall constitute separate violations.
+Damages shall apply **per violation**, and continued or repeated infringement shall constitute separate and cumulative violations.
 
 ---
 
 ## 8. Indemnification
 
-Any unauthorized user agrees to fully **indemnify, defend, and hold harmless** the copyright holder from and against any and all claims, liabilities, losses, damages, costs, and expenses (including reasonable attorneys’ fees) arising from:
+Any individual or entity that uses, accesses, copies, or distributes the Software without authorization agrees to fully **indemnify, defend, and hold harmless** the copyright holder from and against any and all claims, liabilities, losses, damages, costs, and expenses (including reasonable attorneys’ fees) arising from or related to:
 
 * Unauthorized use or misuse of the Software
 * Breach of this License
-* Violation of any applicable law or third-party rights
+* Violation of any applicable law, regulation, or third-party rights
 
-This obligation survives termination and enforcement actions.
+This indemnification obligation shall survive termination, enforcement actions, and any legal proceedings.
 
 ---
 
 ## 9. Reservation of Rights
 
-All rights not expressly granted are expressly reserved by **Natnael Bizuneh Zenebe**.
+All rights not expressly granted herein are **expressly reserved** by **Natnael Bizuneh Zenebe**.
 
 ---
 
 ## 10. Contact and Licensing Requests
 
-For licensing inquiries or written authorization requests, contact the copyright holder directly.
+For licensing inquiries, authorization requests, or formal communications, contact the copyright holder directly.
+
+Unauthorized use of this Software may result in civil and/or criminal liability under applicable law.
