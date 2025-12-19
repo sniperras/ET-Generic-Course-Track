@@ -92,12 +92,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         Helpful Tips
     </h2>
     <ul class="space-y-2 text-gray-700">
-       
+<!--        
         <li class="flex items-start">
             <span class="text-blue-600 font-bold mr-2">•</span>
             First login may take longer as the system prepares reports.
         </li>
-      
+       -->
       
         <li class="flex items-start">
             <span class="text-blue-600 font-bold mr-2">•</span>

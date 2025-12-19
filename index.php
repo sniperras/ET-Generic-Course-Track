@@ -38,6 +38,49 @@ function badge_class_by_gap(string $gap): string {
         default:        return 'bg-gray-500 text-white';
     }
 }
+function badge_class_by_status(string $status): string {
+    switch (strtolower($status)) {
+        case 'open': return 'bg-yellow-500 text-white';
+        case 'closed': return 'bg-green-600 text-white';
+        case 'pending': return 'bg-blue-500 text-white';
+        case 'resolved': return 'bg-green-500 text-white';
+        case 'rejected': return 'bg-red-600 text-white';
+        default: return 'bg-gray-500 text-white';
+    }
+}
+
+/* --------- Handle Dispute Status Check --------- */
+$dispute_status_result = null;
+$dispute_error = '';
+$dispute_id_input = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['check_dispute_status'])) {
+    $dispute_id_input = trim((string)($_GET['dispute_id'] ?? ''));
+    
+    if ($dispute_id_input === '') {
+        $dispute_error = "Please enter a Dispute ID.";
+    } else {
+        // Check if it's numeric
+        if (!is_numeric($dispute_id_input)) {
+            $dispute_error = "Dispute ID must be a number.";
+        } else {
+            $dispute_id = (int)$dispute_id_input;
+            
+            // Fetch dispute details
+            $stmt = $pdo->prepare("
+                SELECT * FROM training_disputes 
+                WHERE dispute_id = ? 
+                LIMIT 1
+            ");
+            $stmt->execute([$dispute_id]);
+            $dispute_status_result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$dispute_status_result) {
+                $dispute_error = "Dispute ID not found.";
+            }
+        }
+    }
+}
 
 /* --------- Load active courses --------- */
 $courses = $pdo->query("
@@ -156,27 +199,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
     $emp_id = trim((string)($_POST['dispute_employee_id'] ?? ''));
     $emp_name = trim((string)($_POST['dispute_employee_name'] ?? ''));
-    $courses_raw = trim((string)($_POST['dispute_courses'] ?? ''));
     $comment = trim((string)($_POST['dispute_comment'] ?? ''));
-    $course_dates_json = $_POST['dispute_course_dates_json'] ?? '[]';
+    
+    // Get courses from individual inputs
+    $courses_list = [];
+    $course_dates = [];
+    
+    if (isset($_POST['dispute_course']) && is_array($_POST['dispute_course'])) {
+        foreach ($_POST['dispute_course'] as $index => $course) {
+            $course = trim((string)$course);
+            if ($course !== '') {
+                $courses_list[] = $course;
+                
+                // Get corresponding date if exists
+                $date = isset($_POST['dispute_course_date'][$index]) ? trim((string)$_POST['dispute_course_date'][$index]) : '';
+                if ($date !== '') {
+                    $ts = strtotime($date);
+                    $course_dates[] = $ts !== false ? date('Y-m-d', $ts) : null;
+                } else {
+                    $course_dates[] = null;
+                }
+            }
+        }
+    }
 
     if ($emp_id === '' || $emp_name === '') $errors_dispute[] = "Employee ID and name are required for a dispute.";
 
-    $lines = preg_split("/\r\n|\n|\r/", $courses_raw);
-    $courses_list = [];
-    foreach ($lines as $L) { $s = trim($L); if ($s !== '') $courses_list[] = $s; }
-    if (count($courses_list) === 0) $errors_dispute[] = "Please list at least one course (one per line).";
-
-    $course_dates = json_decode($course_dates_json, true);
-    if (!is_array($course_dates)) $course_dates = [];
-
-    $normalized_dates = [];
-    for ($i = 0; $i < count($courses_list); $i++) {
-        $d = $course_dates[$i] ?? '';
-        $d = trim((string)$d);
-        if ($d === '') $normalized_dates[] = null;
-        else { $ts = strtotime($d); if ($ts === false) $normalized_dates[] = null; else $normalized_dates[] = date('Y-m-d', $ts); }
-    }
+    if (count($courses_list) === 0) $errors_dispute[] = "Please list at least one course.";
 
     // SERVER-SIDE COOLDOWN CHECK (defense in depth)
     if ($emp_id !== '') {
@@ -207,7 +256,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 $emp_id,
                 $emp_name,
                 json_encode(array_values($courses_list), JSON_UNESCAPED_UNICODE),
-                json_encode($normalized_dates, JSON_UNESCAPED_UNICODE),
+                json_encode(array_values($course_dates), JSON_UNESCAPED_UNICODE),
                 $comment
             ]);
             $dispute_ok = true;
@@ -252,19 +301,181 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 </header>
 
 <main class="max-w-6xl mx-auto px-6 py-10 flex-grow">
-    <div class="bg-white rounded-2xl shadow-lg p-8 mb-8">
-        <h2 class="text-2xl font-bold mb-4">Check Your Training Status</h2>
-        <form method="POST" class="max-w-2xl">
-            <label class="block text-sm font-medium text-gray-600 mb-1">Employee ID</label>
-            <div class="flex gap-3">
-                <input name="employee_id" required value="<?= h($emp_id_submitted) ?>"
-                       class="flex-1 px-4 py-3 border rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-200"
-                       placeholder="e.g. 19962">
-                <button type="submit" class="bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-blue-800">Check Status</button>
-            </div>
-        </form>
+    <!-- Dual forms side by side -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        <!-- Check Training Status Form -->
+        <div class="bg-white rounded-2xl shadow-lg p-8">
+            <h2 class="text-2xl font-bold mb-4">Check Your Training Status</h2>
+            <form method="POST" class="max-w-full">
+                <label class="block text-sm font-medium text-gray-600 mb-1">Employee ID</label>
+                <div class="flex gap-3">
+                    <input name="employee_id" required value="<?= h($emp_id_submitted) ?>"
+                           class="flex-1 px-4 py-3 border rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-200"
+                           placeholder="e.g. 19962">
+                    <button type="submit" class="bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-blue-800">Check Status</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Check Dispute Status Form -->
+        <div class="bg-white rounded-2xl shadow-lg p-8">
+            <h2 class="text-2xl font-bold mb-4">Check Dispute Status</h2>
+            <form method="GET" class="max-w-full">
+                <label class="block text-sm font-medium text-gray-600 mb-1">Dispute ID</label>
+                <div class="flex gap-3">
+                    <input name="dispute_id" required value="<?= h($dispute_id_input) ?>"
+                           class="flex-1 px-4 py-3 border rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-200"
+                           placeholder="e.g. 1001">
+                    <input type="hidden" name="check_dispute_status" value="1">
+                    <button type="submit" class="bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-green-800">Check Dispute</button>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">Enter the Dispute ID you received when submitting your dispute</p>
+            </form>
+        </div>
     </div>
 
+    <!-- Show dispute status result -->
+    <?php if ($dispute_error !== ''): ?>
+        <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6">
+            <div class="font-semibold">Error:</div>
+            <p><?= h($dispute_error) ?></p>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($dispute_status_result): ?>
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
+            <div class="bg-gradient-to-r from-green-800 to-green-900 text-white p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-sm">Dispute Status</div>
+                        <div class="text-2xl font-bold">Dispute ID: <?= h($dispute_status_result['dispute_id']) ?></div>
+                        <div class="text-sm opacity-90 mt-1">
+                            Submitted by: <?= h($dispute_status_result['employee_name']) ?> 
+                            (ID: <?= h($dispute_status_result['employee_id']) ?>) 
+                            on <?= date('F j, Y', strtotime($dispute_status_result['created_at'])) ?>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="inline-block px-4 py-2 rounded-full <?= badge_class_by_status($dispute_status_result['status']) ?> text-sm font-semibold">
+                            <?= h(ucfirst($dispute_status_result['status'])) ?>
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-6">
+                <!-- Dispute Details -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <h3 class="font-bold text-gray-700 mb-2">Dispute Details</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <div class="text-sm text-gray-500">Courses Disputed:</div>
+                                <?php 
+                                    $courses_list = json_decode($dispute_status_result['courses'] ?? '[]', true);
+                                    $course_dates = json_decode($dispute_status_result['course_dates'] ?? '[]', true);
+                                ?>
+                                <?php if (!empty($courses_list)): ?>
+                                    <ul class="mt-1 pl-5 list-disc">
+                                        <?php foreach ($courses_list as $index => $course): ?>
+                                            <li class="text-gray-800">
+                                                <?= h($course) ?>
+                                                <?php if (isset($course_dates[$index]) && $course_dates[$index]): ?>
+                                                    <span class="text-sm text-gray-600">(Date: <?= date('Y-m-d', strtotime($course_dates[$index])) ?>)</span>
+                                                <?php endif; ?>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                <?php else: ?>
+                                    <p class="text-gray-500 italic">No courses listed</p>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <div>
+                                <div class="text-sm text-gray-500">Employee Comment:</div>
+                                <div class="mt-1 p-3 bg-gray-50 rounded border"><?= nl2br(h($dispute_status_result['comment'] ?? 'No comment provided')) ?></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="font-bold text-gray-700 mb-2">Resolution Details</h3>
+                        <div class="space-y-3">
+                            <?php if ($dispute_status_result['status'] === 'closed' || $dispute_status_result['status'] === 'resolved'): ?>
+                                <div>
+                                    <div class="text-sm text-gray-500">HR Comment:</div>
+                                    <div class="mt-1 p-3 bg-green-50 rounded border"><?= nl2br(h($dispute_status_result['hr_comment'] ?? 'No HR comment provided')) ?></div>
+                                </div>
+                                
+                                <?php if ($dispute_status_result['closed_by']): ?>
+                                    <div>
+                                        <div class="text-sm text-gray-500">Closed By:</div>
+                                        <div class="mt-1 text-gray-800"><?= h($dispute_status_result['closed_by']) ?></div>
+                                    </div>
+                                <?php endif; ?>
+                                
+                                <?php if ($dispute_status_result['updated_at']): ?>
+                                    <div>
+                                        <div class="text-sm text-gray-500">Last Updated:</div>
+                                        <div class="mt-1 text-gray-800"><?= date('F j, Y H:i:s', strtotime($dispute_status_result['updated_at'])) ?></div>
+                                    </div>
+                                <?php endif; ?>
+                            <?php elseif ($dispute_status_result['status'] === 'rejected'): ?>
+                                <div>
+                                    <div class="text-sm text-gray-500">Rejection Reason:</div>
+                                    <div class="mt-1 p-3 bg-red-50 rounded border"><?= nl2br(h($dispute_status_result['hr_comment'] ?? 'No reason provided')) ?></div>
+                                </div>
+                                
+                                <?php if ($dispute_status_result['updated_at']): ?>
+                                    <div>
+                                        <div class="text-sm text-gray-500">Last Updated:</div>
+                                        <div class="mt-1 text-gray-800"><?= date('F j, Y H:i:s', strtotime($dispute_status_result['updated_at'])) ?></div>
+                                    </div>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <div class="p-4 bg-yellow-50 border border-yellow-200 rounded">
+                                    <p class="text-yellow-800">
+                                        <strong>Status: <?= h(ucfirst($dispute_status_result['status'])) ?></strong><br>
+                                        Your dispute is currently being reviewed by the HR team. Please check back later for updates.
+                                    </p>
+                                </div>
+                                
+                                <?php if ($dispute_status_result['updated_at']): ?>
+                                    <div>
+                                        <div class="text-sm text-gray-500">Last Updated:</div>
+                                        <div class="mt-1 text-gray-800"><?= date('F j, Y H:i:s', strtotime($dispute_status_result['updated_at'])) ?></div>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timeline -->
+                <div class="border-t pt-4">
+                    <h3 class="font-bold text-gray-700 mb-3">Dispute Timeline</h3>
+                    <div class="space-y-2">
+                        <div class="flex items-center">
+                            <div class="w-3 h-3 bg-blue-500 rounded-full mr-3"></div>
+                            <div class="text-gray-700">
+                                <strong>Created:</strong> <?= date('F j, Y H:i:s', strtotime($dispute_status_result['created_at'])) ?>
+                            </div>
+                        </div>
+                        <?php if ($dispute_status_result['updated_at'] && $dispute_status_result['updated_at'] !== $dispute_status_result['created_at']): ?>
+                            <div class="flex items-center">
+                                <div class="w-3 h-3 bg-green-500 rounded-full mr-3"></div>
+                                <div class="text-gray-700">
+                                    <strong>Last Updated:</strong> <?= date('F j, Y H:i:s', strtotime($dispute_status_result['updated_at'])) ?>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <!-- Existing employee status section -->
     <?php if ($error !== ''): ?>
         <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6"><?= h($error) ?></div>
     <?php endif; ?>
@@ -358,7 +569,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
         <!-- Dispute Modal -->
         <div id="disputeModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 px-4">
-            <div class="bg-white rounded-xl max-w-3xl w-full p-6 shadow-lg">
+            <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-lg">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-bold">Raise Training Dispute</h3>
                     <button id="closeDisputeBtn" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
@@ -366,35 +577,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
                 <form id="disputeForm" method="POST">
                     <input type="hidden" name="raise_dispute" value="1">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700">Employee Name</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Employee Name</label>
                             <input type="text" name="dispute_employee_name" value="<?= h($employee['full_name']) ?>" readonly class="w-full px-4 py-2 border rounded bg-gray-100">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700">Employee ID</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
                             <input type="text" name="dispute_employee_id" value="<?= h($employee['employee_id']) ?>" readonly class="w-full px-4 py-2 border rounded bg-gray-100">
                         </div>
+                    </div>
 
-                        <div class="md:col-span-2">
-                            <label class="block text-sm font-medium text-gray-700">Courses (one per line)</label>
-                            <div class="flex gap-4">
-                                <textarea id="coursesTextarea" name="dispute_courses" rows="5" placeholder="e.g. Human Factors&#10;Fire Safety" class="flex-1 px-4 py-2 border rounded"></textarea>
-
-                                <div class="w-64">
-                                    <div class="text-sm text-gray-700 mb-2">Course Dates</div>
-                                    <div id="datesContainer" class="space-y-2 overflow-auto max-h-40 p-1 border rounded bg-gray-50">
-                                        <div class="text-xs text-gray-400">Enter dates for each course on the left (optional).</div>
-                                    </div>
-                                </div>
+                    <div class="mb-6">
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="font-semibold text-gray-700">Courses</h4>
+                            <button type="button" id="clearAllBtn" class="text-sm text-red-600 hover:text-red-800">Clear All</button>
+                        </div>
+                        
+                        <div id="coursesContainer" class="space-y-3 max-h-60 overflow-y-auto p-2 border rounded">
+                            <!-- Course rows will be added here -->
+                            <div class="text-sm text-gray-500 italic py-2 text-center" id="noCoursesMessage">
+                                No courses added yet. Click "+ Add Empty Course Row" to add courses.
                             </div>
-                            <input type="hidden" name="dispute_course_dates_json" id="dispute_course_dates_json" value="[]">
                         </div>
+                        
+                        <div class="mt-3">
+                            <button type="button" id="addCourseRowBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold">
+                                + Add Empty Course Row
+                            </button>
+                        </div>
+                    </div>
 
-                        <div class="md:col-span-2">
+                    <div class="mb-6">
+                        <div class="flex items-center justify-between mb-2">
                             <label class="block text-sm font-medium text-gray-700">General Comment</label>
-                            <textarea name="dispute_comment" rows="4" placeholder="Explain the issue or any details for the MRO officer..." class="w-full px-4 py-2 border rounded"></textarea>
                         </div>
+                        <textarea id="disputeComment" name="dispute_comment" rows="4" placeholder="Explain the issue or any details for the MRO officer..." class="w-full px-4 py-2 border rounded"></textarea>
                     </div>
 
                     <!-- modal inline errors -->
@@ -403,7 +621,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                     <div class="mt-6 flex items-center justify-between">
                         <div class="text-sm text-gray-600">We will send your dispute to the MRO HR record officer for review.</div>
                         <div class="flex gap-3">
-                            <button type="button" id="addCourseRowBtn" class="bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded">+ Add Empty Course Row</button>
                             <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold">Submit Dispute</button>
                         </div>
                     </div>
@@ -426,28 +643,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
     </div>
 </footer>
 
-<!-- JS: modal + synchronize courses <-> date inputs + AJAX submit + cooldown flash -->
+<!-- JS: modal + separate course inputs with add/remove functionality -->
 <script>
 (function(){
     const openBtn = document.getElementById('openDisputeBtn');
     const closeBtn = document.getElementById('closeDisputeBtn');
     const modal = document.getElementById('disputeModal');
-    const coursesTextarea = document.getElementById('coursesTextarea');
-    const datesContainer = document.getElementById('datesContainer');
-    const hiddenDates = document.getElementById('dispute_course_dates_json');
     const addCourseRowBtn = document.getElementById('addCourseRowBtn');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    const coursesContainer = document.getElementById('coursesContainer');
+    const noCoursesMessage = document.getElementById('noCoursesMessage');
+    const disputeComment = document.getElementById('disputeComment');
     const disputeForm = document.getElementById('disputeForm');
     const modalErrors = document.getElementById('modalErrors');
     const ajaxMessageContainer = document.getElementById('ajaxMessageContainer');
 
-    function openModal(){ modal.classList.remove('hidden'); modal.classList.add('flex'); syncDates(); modalErrors.innerHTML=''; }
-    function closeModal(){ modal.classList.add('hidden'); modal.classList.remove('flex'); }
+    let courseRowCounter = 0;
+    const EMPLOYEE_ID = '<?= h($employee['employee_id'] ?? '') ?>';
+    const STORAGE_KEY = `dispute_form_data_${EMPLOYEE_ID}`;
+
+    function getSavedFormData() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) return JSON.parse(saved);
+        } catch (e) {
+            console.error('Error loading saved form data:', e);
+        }
+        return { courses: [], comment: '' };
+    }
+
+    function saveFormDataToStorage(data) {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (e) {
+            console.error('Error saving form data:', e);
+        }
+    }
+
+    function clearFormDataFromStorage() {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {
+            console.error('Error clearing form data:', e);
+        }
+    }
+
+    function openModal(){
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        modalErrors.innerHTML = '';
+
+        clearAllCourseRows();
+
+        const savedFormData = getSavedFormData();
+
+        if (savedFormData.courses && savedFormData.courses.length > 0) {
+            savedFormData.courses.forEach(course => {
+                addCourseRow(course.name, course.date);
+            });
+        } else {
+            addCourseRow(); // One empty row for new dispute
+        }
+
+        if (disputeComment && savedFormData.comment) {
+            disputeComment.value = savedFormData.comment;
+        }
+
+        updateNoCoursesMessage();
+    }
+
+    function closeModal(){
+        saveFormData();
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
 
     openBtn?.addEventListener('click', function(e){
-        // client-side cooldown check
         const canRaise = openBtn.dataset.canRaise === '1';
         if (!canRaise) {
-            // show the flash message for 10 seconds
             showTemporaryFlash(false, 'Please try again after one week, as you have already used your quota.', 10000);
             return;
         }
@@ -455,142 +728,216 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
     });
 
     closeBtn?.addEventListener('click', closeModal);
-    modal?.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
-
-    function getCourseLines(){
-        const raw = coursesTextarea.value || '';
-        return raw.split(/\r\n|\n|\r/).map(l => l.replace(/\u00A0/g,' ').trim());
-    }
-
-    function syncDates(){
-        const lines = getCourseLines();
-        datesContainer.innerHTML = '';
-        const existingDates = JSON.parse(hiddenDates.value || '[]');
-        for (let i=0;i<lines.length;i++){
-            const wrapper = document.createElement('div'); wrapper.className='flex items-center gap-2';
-            const label = document.createElement('div'); label.className='text-xs text-gray-600 w-1/2 truncate'; label.textContent = lines[i] || '(empty)';
-            const input = document.createElement('input'); input.type='date'; input.className='w-1/2 px-2 py-1 border rounded'; input.dataset.idx = i;
-            if (existingDates[i]) input.value = existingDates[i];
-            wrapper.appendChild(label); wrapper.appendChild(input); datesContainer.appendChild(wrapper);
-        }
-        if (lines.length === 0) {
-            // keep a hint row
-            const hint = document.createElement('div'); hint.className='text-xs text-gray-400'; hint.textContent='Enter courses in the textarea to add date fields.';
-            datesContainer.appendChild(hint);
-        }
-    }
-
-    let debounceTimer = null;
-    coursesTextarea?.addEventListener('input', function(){ clearTimeout(debounceTimer); debounceTimer = setTimeout(syncDates, 200); });
-
-    addCourseRowBtn?.addEventListener('click', function(){
-        coursesTextarea.value = coursesTextarea.value + (coursesTextarea.value ? "\n" : "") + "";
-        syncDates();
+    modal?.addEventListener('click', function(e){
+        if (e.target === modal) closeModal();
     });
 
+    function saveFormData() {
+        const savedFormData = {
+            courses: [],
+            comment: disputeComment ? disputeComment.value.trim() : ''
+        };
+
+        const courseRows = coursesContainer.querySelectorAll('.course-row');
+        courseRows.forEach(row => {
+            const courseInput = row.querySelector('input[name^="dispute_course"]');
+            const dateInput = row.querySelector('input[name^="dispute_course_date"]');
+            if (courseInput) {
+                savedFormData.courses.push({
+                    name: courseInput.value.trim(),
+                    date: dateInput ? dateInput.value.trim() : ''
+                });
+            }
+        });
+
+        saveFormDataToStorage(savedFormData);
+    }
+
+    function addCourseRow(courseName = '', courseDate = '') {
+        courseRowCounter++;
+        const rowId = `courseRow_${courseRowCounter}`;
+
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'course-row flex items-center gap-2 p-2 border rounded hover:bg-gray-50';
+        rowDiv.id = rowId;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'remove-course-btn text-red-500 hover:text-red-700 text-lg font-bold w-6 h-6 flex items-center justify-center';
+        removeBtn.innerHTML = '−';
+        removeBtn.title = 'Remove this course';
+        removeBtn.addEventListener('click', () => removeCourseRow(rowId));
+
+        const courseInput = document.createElement('input');
+        courseInput.type = 'text';
+        courseInput.name = `dispute_course[]`;
+        courseInput.placeholder = 'Course name (e.g., Human Factors)';
+        courseInput.className = 'flex-1 px-3 py-2 border rounded';
+        courseInput.value = courseName;
+
+        const dateInput = document.createElement('input');
+        dateInput.type = 'date';
+        dateInput.name = `dispute_course_date[]`;
+        dateInput.className = 'w-40 px-3 py-2 border rounded';
+        dateInput.value = courseDate;
+
+        rowDiv.appendChild(removeBtn);
+        rowDiv.appendChild(courseInput);
+        rowDiv.appendChild(dateInput);
+        coursesContainer.appendChild(rowDiv);
+
+        updateNoCoursesMessage();
+
+        if (!courseName) setTimeout(() => courseInput.focus(), 10);
+
+        courseInput.addEventListener('input', saveFormData);
+        dateInput.addEventListener('input', saveFormData);
+    }
+
+    function removeCourseRow(rowId) {
+        document.getElementById(rowId)?.remove();
+        updateNoCoursesMessage();
+        saveFormData();
+    }
+
+    function clearAllCourseRows() {
+        coursesContainer.innerHTML = '';
+        courseRowCounter = 0;
+        updateNoCoursesMessage();
+    }
+
+    function clearAllCourseRowsAndComment() {
+        clearAllCourseRows();
+        if (disputeComment) disputeComment.value = '';
+        clearFormDataFromStorage();
+        addCourseRow();
+    }
+
+    function updateNoCoursesMessage() {
+        const rows = coursesContainer.querySelectorAll('.course-row').length;
+        if (noCoursesMessage) {
+            noCoursesMessage.style.display = rows === 0 ? 'block' : 'none';
+        }
+    }
+
+    addCourseRowBtn?.addEventListener('click', () => addCourseRow());
+
+    clearAllBtn?.addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear ALL courses and the comment?')) {
+            clearAllCourseRowsAndComment();
+        }
+    });
+
+    if (disputeComment) disputeComment.addEventListener('input', saveFormData);
+
+    // === MISSING FUNCTION FIXED ===
     function showAjaxMessage(success, message) {
         ajaxMessageContainer.innerHTML = '';
         const div = document.createElement('div');
-        div.className = 'mb-4 p-4 rounded ' + (success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
+        div.className = `mb-4 p-4 rounded ${success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
         div.textContent = message;
         ajaxMessageContainer.appendChild(div);
     }
 
-    // show temporary flash in ajaxMessageContainer for specified duration (ms)
     function showTemporaryFlash(success, message, durationMs) {
         ajaxMessageContainer.innerHTML = '';
         const div = document.createElement('div');
-        div.className = 'mb-4 p-4 rounded ' + (success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
+        div.className = `mb-4 p-4 rounded ${success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
         div.textContent = message;
         ajaxMessageContainer.appendChild(div);
-        // auto-hide after durationMs
-        setTimeout(() => {
-            if (ajaxMessageContainer.contains(div)) {
-                ajaxMessageContainer.removeChild(div);
-            }
-        }, durationMs);
+        setTimeout(() => div.remove(), durationMs);
     }
 
+    // === FORM SUBMISSION WITH FRIENDLY VALIDATION ===
     disputeForm?.addEventListener('submit', function(e){
         e.preventDefault();
         modalErrors.innerHTML = '';
 
-        // build hiddenDates
-        const lines = getCourseLines();
-        const inputs = datesContainer.querySelectorAll('input[type="date"]');
-        const dates = [];
-        for (let i = 0; i < lines.length; i++){
-            let v = null;
-            const inp = Array.from(inputs).find(x => x.dataset.idx == i);
-            if (inp && inp.value) v = inp.value;
-            dates.push(v);
+        const courseRows = coursesContainer.querySelectorAll('.course-row');
+        let hasValidCourse = false;
+        let validationErrors = [];
+
+        courseRows.forEach((row, index) => {
+            const courseInput = row.querySelector('input[name^="dispute_course"]');
+            const dateInput = row.querySelector('input[name^="dispute_course_date"]');
+
+            const courseName = courseInput ? courseInput.value.trim() : '';
+            const courseDate = dateInput ? dateInput.value.trim() : '';
+
+            if (courseName === '' && courseDate === '') {
+                validationErrors.push(`Row ${index + 1}: Please fill in the course name and date or remove this row.`);
+            } else if (courseName === '') {
+                validationErrors.push(`Row ${index + 1}: Please enter a course name or remove this row.`);
+            } else if (courseDate === '') {
+                validationErrors.push(`Row ${index + 1}: Please select a date or remove this row.`);
+            } else {
+                hasValidCourse = true;
+            }
+        });
+
+        // Comment can be empty — no validation
+
+        if (validationErrors.length > 0) {
+            const ul = document.createElement('ul');
+            ul.className = 'list-disc pl-6 text-left';
+            validationErrors.forEach(err => {
+                const li = document.createElement('li');
+                li.textContent = err;
+                ul.appendChild(li);
+            });
+            modalErrors.innerHTML = `<div class="mb-4 p-4 rounded bg-orange-100 text-orange-800 border border-orange-300">
+                <strong>Please fix the following:</strong>${ul.outerHTML}
+            </div>`;
+            return;
         }
-        hiddenDates.value = JSON.stringify(dates);
+
+        if (!hasValidCourse) {
+            modalErrors.innerHTML = '<div class="mb-4 p-4 rounded bg-orange-100 text-orange-800 border border-orange-300">Please add at least one complete course (name and date).</div>';
+            return;
+        }
 
         const formData = new FormData(disputeForm);
-
-        // Send AJAX POST
         fetch(location.href, {
             method: 'POST',
             body: formData,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-        .then(async res => {
-            const ct = res.headers.get('content-type') || '';
-            if (ct.indexOf('application/json') !== -1) {
-                return res.json();
-            } else {
-                // fallback: if not JSON, treat as error
-                const text = await res.text();
-                throw new Error('Unexpected server response: ' + text.slice(0,200));
-            }
-        })
+        .then(res => res.ok ? res.json() : res.text().then(t => { throw new Error(t); }))
         .then(data => {
             if (data.success) {
-                // show success, close modal, clear form
-                showAjaxMessage(true, data.message || 'Dispute submitted');
+                showAjaxMessage(true, data.message || 'Dispute submitted successfully!');
                 closeModal();
-                disputeForm.reset();
-                hiddenDates.value = '[]';
-                syncDates();
-                // Since a dispute was added, disable further attempts on client (cooldown starts)
+                clearAllCourseRowsAndComment();
                 openBtn.dataset.canRaise = '0';
             } else {
-                // If server returned the cooldown message, show it as a temporary flash as well
                 const errs = data.errors || [data.message || 'Submission failed'];
-                // if the only error is the cooldown message, show as temporary flash for 10s and do not close modal
-                if (errs.length === 1 && errs[0].toLowerCase().includes('please fill try after 1 week')) {
+                if (errs.length === 1 && errs[0].toLowerCase().includes('please try after 1 week')) {
                     showTemporaryFlash(false, errs[0], 10000);
-                    // Also show inside modal
-                    const ul = document.createElement('ul'); ul.className='list-disc pl-5';
-                    const li = document.createElement('li'); li.textContent = errs[0]; ul.appendChild(li);
-                    modalErrors.innerHTML = '';
-                    const box = document.createElement('div'); box.className='mb-4 p-3 rounded bg-red-50 text-red-800'; box.appendChild(ul);
-                    modalErrors.appendChild(box);
-                } else {
-                    // show errors inside modal (do not close)
-                    const ul = document.createElement('ul'); ul.className='list-disc pl-5';
-                    errs.forEach(err => {
-                        const li = document.createElement('li'); li.textContent = err; ul.appendChild(li);
-                    });
-                    modalErrors.innerHTML = '';
-                    const box = document.createElement('div'); box.className='mb-4 p-3 rounded bg-red-50 text-red-800'; box.appendChild(ul);
-                    modalErrors.appendChild(box);
                 }
+                const ul = document.createElement('ul');
+                ul.className = 'list-disc pl-5';
+                errs.forEach(err => {
+                    const li = document.createElement('li');
+                    li.textContent = err;
+                    ul.appendChild(li);
+                });
+                modalErrors.innerHTML = `<div class="mb-4 p-3 rounded bg-red-50 text-red-800">${ul.outerHTML}</div>`;
             }
         })
         .catch(err => {
-            modalErrors.innerHTML = '';
-            const box = document.createElement('div'); box.className='mb-4 p-3 rounded bg-red-50 text-red-800';
-            box.textContent = 'Network or server error: ' + err.message;
-            modalErrors.appendChild(box);
+            modalErrors.innerHTML = `<div class="mb-4 p-3 rounded bg-red-50 text-red-800">Network or server error: ${err.message}</div>`;
         });
     });
 
-    document.addEventListener('DOMContentLoaded', syncDates);
-
+    // Cleanup old employee data
+    document.addEventListener('DOMContentLoaded', () => {
+        const lastId = localStorage.getItem('last_employee_id');
+        if (lastId && lastId !== EMPLOYEE_ID) {
+            localStorage.removeItem(`dispute_form_data_${lastId}`);
+        }
+        if (EMPLOYEE_ID) localStorage.setItem('last_employee_id', EMPLOYEE_ID);
+    });
 })();
 </script>
-
 </body>
 </html>
