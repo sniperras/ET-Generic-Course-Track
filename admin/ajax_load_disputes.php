@@ -9,7 +9,7 @@ const ITEMS_PER_PAGE = 50;
 $page = max(1, (int)($_GET['page'] ?? 1));
 $offset = ($page - 1) * ITEMS_PER_PAGE;
 $q = trim($_GET['q'] ?? '');
-$statusFilter = $_GET['status'] ?? 'all'; // ← This was the bug!
+$statusFilter = $_GET['status'] ?? 'all';
 
 $whereParts = [];
 $params = [];
@@ -37,7 +37,8 @@ $totalCount = (int)$totalStmt->fetchColumn();
 $totalPages = (int)ceil($totalCount / ITEMS_PER_PAGE);
 
 $listStmt = $pdo->prepare("
-    SELECT dispute_id, employee_id, employee_name, courses, course_dates, comment, status, created_at, updated_at, closed_by
+    SELECT dispute_id, employee_id, employee_name, courses, course_dates, comment, 
+           status, created_at, updated_at, closed_by, hr_comment
     FROM training_disputes $where
     ORDER BY created_at DESC
     LIMIT " . ITEMS_PER_PAGE . " OFFSET $offset
@@ -94,6 +95,7 @@ function h($v): string { return htmlspecialchars((string)$v, ENT_QUOTES | ENT_SU
   data-courses='<?= h(json_encode($courses)) ?>'
   data-course-dates='<?= h($r['course_dates']) ?>'
   data-comment="<?= h($r['comment']) ?>"
+  data-hr-comment="<?= h($r['hr_comment'] ?? '') ?>"
   data-status="<?= h($r['status']) ?>"
   data-created-at="<?= h($r['created_at']) ?>"
   data-updated-at="<?= h($r['updated_at'] ?? '') ?>"

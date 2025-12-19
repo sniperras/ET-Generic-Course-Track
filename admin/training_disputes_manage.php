@@ -75,8 +75,8 @@ ob_end_flush();
   <!-- Status Filter Buttons -->
   <div class="mb-6 flex gap-3 flex-wrap">
     <button type="button" class="status-btn px-6 py-3 rounded-lg font-semibold transition shadow-sm bg-blue-600 text-white" data-status="open">
-  Open Disputes
-</button>
+      Open Disputes
+    </button>
     <button type="button" class="status-btn px-6 py-3 rounded-lg font-semibold transition shadow-sm" data-status="closed">
       Closed Disputes
     </button>
@@ -120,9 +120,22 @@ ob_end_flush();
       </div>
       <div class="space-y-5">
         <div>
-          <label class="text-sm font-medium text-gray-600">Comment</label>
+          <label class="text-sm font-medium text-gray-600">Employee Comment</label>
           <div id="modalComment" class="mt-2 p-4 bg-gray-50 rounded-lg text-gray-700 whitespace-pre-wrap"></div>
         </div>
+        
+        <!-- HR Comment Section -->
+        <div id="hrCommentSection">
+          <label class="text-sm font-medium text-gray-600">HR Comment <span class="text-red-500">*</span></label>
+          <textarea id="hrCommentInput" rows="3" class="mt-2 w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="Enter HR comment before closing..."></textarea>
+          <div id="hrCommentError" class="mt-1 text-sm text-red-600 hidden">HR comment is required to close the dispute.</div>
+          
+          <div id="hrCommentDisplay" class="mt-2 p-4 bg-blue-50 rounded-lg text-gray-700 whitespace-pre-wrap hidden">
+            <strong class="text-sm text-blue-700">HR Comment:</strong>
+            <div id="hrCommentText" class="mt-1"></div>
+          </div>
+        </div>
+        
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="text-sm font-medium text-gray-600">Status</label>
@@ -157,6 +170,7 @@ ob_end_flush();
 const CSRF = "<?= h($csrf) ?>";
 let currentId = null;
 let currentRow = null;
+let currentStatus = null;
 
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -170,6 +184,7 @@ function bindViewButtons() {
       const d = this.dataset;
       currentId = d.id;
       currentRow = this.closest('tr');
+      currentStatus = d.status || 'open';
 
       document.getElementById('modalTitle').textContent = `Dispute #${d.id}`;
       document.getElementById('modalSubtitle').textContent = `Employee ID: ${d.employeeId || '—'}`;
@@ -186,7 +201,28 @@ function bindViewButtons() {
       document.getElementById('modalDates').innerHTML = dates.length ? dates.map(d => `• ${escapeHtml(String(d || '—'))}`).join('<br>') : '—';
 
       document.getElementById('modalComment').textContent = d.comment || 'No comment';
-      const isOpen = (d.status || '').toLowerCase() === 'open';
+      const isOpen = (currentStatus || '').toLowerCase() === 'open';
+      
+      // Handle HR comment display
+      const hrComment = d.hrComment || '';
+      const hrCommentInput = document.getElementById('hrCommentInput');
+      const hrCommentDisplay = document.getElementById('hrCommentDisplay');
+      const hrCommentText = document.getElementById('hrCommentText');
+      const hrCommentError = document.getElementById('hrCommentError');
+      
+      if (isOpen) {
+        // For open disputes, show input field
+        hrCommentInput.value = hrComment;
+        hrCommentInput.classList.remove('hidden');
+        hrCommentDisplay.classList.add('hidden');
+        hrCommentError.classList.add('hidden');
+      } else {
+        // For closed disputes, show the comment
+        hrCommentInput.classList.add('hidden');
+        hrCommentDisplay.classList.remove('hidden');
+        hrCommentText.textContent = hrComment || 'No HR comment provided';
+      }
+      
       document.getElementById('modalStatus').innerHTML = `
         <span class="inline-block px-4 py-2 rounded-full text-sm font-bold ${isOpen ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}">
           ${isOpen ? 'Open' : 'Closed'}
@@ -268,32 +304,67 @@ document.getElementById('modal')?.addEventListener('click', e => {
 
 document.getElementById('toggleStatusBtn')?.addEventListener('click', function() {
   if (!currentId) return;
+  
+  const isOpen = currentStatus.toLowerCase() === 'open';
+  const hrCommentInput = document.getElementById('hrCommentInput');
+  const hrCommentError = document.getElementById('hrCommentError');
+  
+  // If trying to close, validate HR comment
+  if (isOpen) {
+    const hrComment = hrCommentInput.value.trim();
+    if (!hrComment) {
+      hrCommentError.classList.remove('hidden');
+      hrCommentInput.focus();
+      return;
+    }
+  }
+  
   this.disabled = true;
   this.innerHTML = 'Saving...';
 
   fetch('ajax_toggle_dispute.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ action: 'toggle_status', id: currentId, csrf_token: CSRF })
+    body: new URLSearchParams({ 
+      action: 'toggle_status', 
+      id: currentId, 
+      hr_comment: isOpen ? hrCommentInput.value.trim() : '',
+      csrf_token: CSRF 
+    })
   })
   .then(r => r.json())
   .then(data => {
     if (data.success) {
-      const isClosed = data.new_status.toLowerCase() === 'closed';
-      document.getElementById('modalStatus').innerHTML = `<span class="inline-block px-4 py-2 rounded-full text-sm font-bold ${isClosed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${isClosed ? 'Closed' : 'Open'}</span>`;
+      const newStatus = data.new_status.toLowerCase();
+      document.getElementById('modalStatus').innerHTML = `<span class="inline-block px-4 py-2 rounded-full text-sm font-bold ${newStatus === 'closed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${newStatus === 'closed' ? 'Closed' : 'Open'}</span>`;
       document.getElementById('modalUpdated').textContent = data.updated_at || '—';
       document.getElementById('modalClosedBy').textContent = data.closed_by || '—';
-      this.textContent = isClosed ? 'Re-open' : 'Mark as Closed';
+      this.textContent = newStatus === 'closed' ? 'Re-open' : 'Mark as Closed';
+      
+      // Update HR comment display
+      if (newStatus === 'closed') {
+        const hrComment = hrCommentInput.value.trim();
+        hrCommentInput.classList.add('hidden');
+        document.getElementById('hrCommentDisplay').classList.remove('hidden');
+        document.getElementById('hrCommentText').textContent = hrComment || 'No HR comment provided';
+      } else {
+        // When re-opening, show input field again
+        hrCommentInput.classList.remove('hidden');
+        document.getElementById('hrCommentDisplay').classList.add('hidden');
+      }
+      
+      hrCommentError.classList.add('hidden');
+      currentStatus = newStatus;
 
       if (currentRow) {
-        currentRow.cells[3].innerHTML = isClosed
+        currentRow.cells[3].innerHTML = newStatus === 'closed'
           ? '<span class="px-3 py-1.5 rounded-full text-xs font-bold bg-green-100 text-green-800">Closed</span>'
           : '<span class="px-3 py-1.5 rounded-full text-xs font-bold bg-red-100 text-red-800">Open</span>';
         if (data.updated_at) currentRow.cells[5].textContent = data.updated_at;
         currentRow.cells[6].textContent = data.closed_by || '—';
 
         const currentFilter = document.querySelector('.status-btn.bg-blue-600')?.dataset.status;
-        if (currentFilter === 'open' && isClosed) {
+        if (currentFilter === 'open' && newStatus === 'closed') {
           currentRow.remove();
           if (!document.querySelector('tbody tr')) {
             document.querySelector('tbody').innerHTML = '<tr><td colspan="8" class="p-12 text-center text-gray-500 text-lg">No disputes found.</td></tr>';

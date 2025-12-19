@@ -1,6 +1,21 @@
-<?php require_once '../include/db_connect.php'; require_once '../include/auth.php'; requireAdmin(); ?>
+<?php 
+require_once '../include/db_connect.php'; 
+require_once '../include/auth.php'; 
+requireAdminRole(); // Instead of just requireAdmin()
 
-<h2 class="text-3xl font-bold mb-8">Manage Users (Admins & HR)</h2>
+// Get current user's role from session
+$current_user_role = $_SESSION['user_role'] ?? '';
+
+// Only allow admin users to access this page
+if ($current_user_role !== 'admin') {
+    // Redirect to dashboard with error message
+    $_SESSION['error_message'] = 'Access denied. Only administrators can manage users.';
+    header('Location: admin_panel.php?page=dashboard');
+    exit;
+}
+?>
+
+<h2 class="text-3xl font-bold mb-8">Manage Users (Admins & HR) - Admin Only</h2>
 
 <?php
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {

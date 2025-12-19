@@ -18,6 +18,17 @@ $page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'dashboard';
 // require admin (redirect or JSON response for AJAX)
 requireAdmin();
 
+// Check user role from session
+$current_user_role = $_SESSION['user_role'] ?? '';
+
+// Check if current user can access the requested page
+// Instead of manually checking $current_user_role
+if (!canManageUsers() && $page === 'users') {
+    $_SESSION['error_message'] = 'Access denied. Only administrators can manage users.';
+    header('Location: admin_panel.php?page=dashboard');
+    exit;
+}
+
 // AJAX special handling
 if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
     if ($page === 'training_disputes_manage') {
@@ -44,7 +55,9 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
     <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
       <h1 class="text-2xl font-bold">Admin Panel</h1>
       <div class="flex items-center gap-6">
-        <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Admin') ?></strong></span>
+        <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Admin') ?></strong> 
+        <span class="text-sm bg-blue-700 px-3 py-1 rounded-full"><?= strtoupper($current_user_role) ?></span>
+        </span>
         <a href="/index.php" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg font-medium">Logout</a>
       </div>
     </div>
@@ -66,6 +79,10 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
         ];
         foreach ($nav as $key => $label):
             $active = $page === $key;
+            // Hide "Users" menu item for non-admin users
+            if ($key === 'users' && $current_user_role !== 'admin') {
+                continue;
+            }
         ?>
           <a href="?page=<?= urlencode($key) ?>"
              class="block py-4 px-8 <?= $active ? 'bg-blue-700 text-white' : 'hover:bg-gray-100 text-gray-700' ?>">
@@ -77,6 +94,12 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 
     <main class="flex-1 p-10">
       <?php
+      // Display error message if set
+      if (isset($_SESSION['error_message'])) {
+          echo '<div class="bg-red-100 text-red-800 p-4 rounded-lg mb-6">' . htmlspecialchars($_SESSION['error_message']) . '</div>';
+          unset($_SESSION['error_message']);
+      }
+      
       // include the chosen page (safe via whitelist)
       switch ($page) {
           case 'employees':       include __DIR__ . '/employees.php';      break;
