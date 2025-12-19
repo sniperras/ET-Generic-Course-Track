@@ -11,9 +11,9 @@ $allowed_pages = [
     'import', 'import_training', 'training_disputes_manage','1&status=open', 'users'
 ];
 
-// Change default page to 'records'
-$page_raw = $_GET['page'] ?? 'records';
-$page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'records';
+// Change default page to 'dashboard'
+$page_raw = $_GET['page'] ?? 'dashboard';
+$page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'dashboard';
 
 // require admin (redirect or JSON response for AJAX)
 requireAdmin();
@@ -88,7 +88,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           case '1&status=open':   include __DIR__ . '/training_disputes_manage.php?1&status=open'; break;
           case 'users':           include __DIR__ . '/users.php';          break;
           case 'records':         include __DIR__ . '/records.php';        break;
-          default:                include __DIR__ . '/records.php';        break;
+          default:                include __DIR__ . '/dashboard.php';        break;
       }
       ?>
     </main>
