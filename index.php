@@ -639,7 +639,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 <footer class="bg-blue-950 text-gray-300 py-8 mt-auto">
     <div class="max-w-7xl mx-auto px-6 text-center">
         <p class="text-sm">© <?= date('Y') ?> <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.</p>
-        <p class="text-xs mt-2 opacity-75">MRO HR Management System • Powered by Ethiopian Developers</p>
+        <p class="text-xs mt-2 opacity-75">MRO HR Course Track System • Powered by NATNAEL BIZUNEH</p>
     </div>
 </footer>
 
