@@ -26,7 +26,6 @@ function parse_human_date(?string $raw): ?string
     $lower = mb_strtolower($s);
     if (in_array($lower, ['n/a', 'na', '—', '-', 'none', 'mm/dd/yyyy', '0000-00-00'], true)) return null;
 
-    // Try direct MySQL date format first
     if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $s)) {
         return $s;
     }
@@ -102,7 +101,6 @@ function badge_class_by_status(string $status): string
     }
 }
 
-// Get last import date from any course_records table
 function getLastImportDate($pdo): ?string
 {
     $tables = $pdo->query("SHOW TABLES LIKE 'course_records_%'")->fetchAll(PDO::FETCH_COLUMN);
@@ -151,7 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['check_dispute_status'])
     }
 }
 
-/* --------- Load active courses - FIXED: Added TRIM() to remove tab characters --------- */
+/* --------- Load active courses --------- */
 $courses = $pdo->query("
     SELECT course_id, course_code, course_name, COALESCE(validity_months, 24) AS validity_months, TRIM(table_name) AS table_name
     FROM courses
@@ -165,12 +163,6 @@ $emp_id_submitted = '';
 $results = [];
 $error = '';
 $last_import_date = getLastImportDate($pdo);
-
-$employee_dispute_cooldown = [
-    'can_raise' => true,
-    'cooldown_until' => null,
-    'seconds_left' => 0
-];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !isset($_POST['raise_dispute'])) {
     $emp_id_submitted = trim((string)($_POST['employee_id'] ?? ''));
@@ -186,36 +178,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
             $employee = null;
             $error = "Employee ID not found or inactive.";
         } else {
-            // Check dispute cooldown
-            try {
-                $stmt = $pdo->prepare("SELECT created_at FROM training_disputes WHERE employee_id = ? ORDER BY created_at DESC LIMIT 1");
-                $stmt->execute([$employee['employee_id']]);
-                $last = $stmt->fetch(PDO::FETCH_ASSOC);
-                if ($last && !empty($last['created_at'])) {
-                    $lastDt = new DateTimeImmutable($last['created_at']);
-                    $coolUntil = $lastDt->add(new DateInterval('P' . DISPUTE_COOLDOWN_DAYS . 'D'));
-                    $now = new DateTimeImmutable('now');
-                    if ($coolUntil > $now) {
-                        $employee_dispute_cooldown['can_raise'] = false;
-                        $employee_dispute_cooldown['cooldown_until'] = $coolUntil;
-                        $employee_dispute_cooldown['seconds_left'] = (int)($coolUntil->getTimestamp() - $now->getTimestamp());
-                    }
-                }
-            } catch (Exception $e) {
-                // Ignore error
-            }
-
             // Process each course
             foreach ($courses as $c) {
                 $table = trim($c['table_name']);
-                $course_id = (int)$c['course_id'];
                 $course_code = $c['course_code'];
                 $course_name = $c['course_name'];
                 $validity_months = (int)$c['validity_months'];
-                $never_expire = in_array($course_code, $GLOBALS['NEVER_EXPIRE_COURSES']);
+                $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES);
 
                 $row = [
-                    'course_id' => $course_id,
                     'course_code' => $course_code,
                     'course_name' => $course_name,
                     'completed_raw' => null,
@@ -224,11 +195,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                     'status' => null,
                     'expiry' => null,
                     'gap_type' => 'initial',
-                    'validity_months' => $validity_months,
-                    'never_expire' => $never_expire
+                    'validity_months' => $validity_months
                 ];
 
-                // Check if course has a valid table
                 if (!$table || !safe_table($table)) {
                     $row['status'] = 'N/A';
                     $row['gap_type'] = 'na';
@@ -236,9 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                     continue;
                 }
 
-                // Try to fetch record from the course table
                 try {
-                    // First check if table exists
                     $table_exists = $pdo->query("SHOW TABLES LIKE '$table'")->fetch();
 
                     if (!$table_exists) {
@@ -260,7 +227,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                         continue;
                     }
 
-                    // Get completed date
                     $completed_raw = $rec['CompletedDate'] ?? null;
                     $parsed = null;
 
@@ -271,13 +237,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                     $row['completed_raw'] = $completed_raw;
                     $row['completed'] = $parsed;
 
-                    // Get status
                     $status_raw = trim((string)($rec['Status'] ?? ''));
                     $row['status_raw'] = $status_raw;
-
                     $st_lower = mb_strtolower($status_raw);
 
-                    // CRITICAL FIX: For courses with "Taken" or "Current" status but NO completion date -> show as "Not Taken"
+                    // For courses with "Taken" or "Current" status but NO completion date -> show as "Not Taken"
                     if (($st_lower === 'taken' || $st_lower === 'current') && ($parsed === null || $parsed === '')) {
                         $row['status'] = 'Not Taken';
                         $row['gap_type'] = 'initial';
@@ -285,15 +249,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                         continue;
                     }
 
-                    // For never-expire courses with a valid date -> show as "Current" (they never expire)
+                    // For never-expire courses with a valid date -> show as "Current"
                     if ($never_expire && $parsed !== null && $parsed !== '') {
                         $row['gap_type'] = 'ok';
                         $row['status'] = 'Current';
                         $results[] = $row;
                         continue;
                     }
-
-                    // For never-expire courses without a date -> already handled above as "Not Taken"
 
                     // Normalize status for regular courses
                     if ($st_lower === '' || in_array($st_lower, ['n/a', 'na', '—', '-', 'none'], true)) {
@@ -308,7 +270,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                         $status_norm = $status_raw === '' ? 'N/A' : $status_raw;
                     }
 
-                    // Calculate current status based on date and validity
                     $current_status = 'N/A';
 
                     if ($parsed !== null && $parsed !== '') {
@@ -323,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                                 $current_status = 'Expired';
                             } else {
                                 $days_to_expiry = (int)$today->diff($expiry_dt)->days;
-                                if ($expiry_dt >= $today && $days_to_expiry <= DEFAULT_TO_BE_DAYS) {
+                                if ($days_to_expiry <= DEFAULT_TO_BE_DAYS) {
                                     $row['gap_type'] = 'tobe';
                                     $current_status = 'To be expired';
                                 } else {
@@ -332,7 +293,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                                 }
                             }
                         } else {
-                            // Date exists but can't parse it
                             $row['expiry'] = null;
                             if (in_array(strtolower($status_norm), ['expired', 'overdue'])) {
                                 $row['gap_type'] = 'expired';
@@ -340,25 +300,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                             } elseif (in_array(strtolower($status_norm), ['current', 'valid', 'taken', 'passed', 'completed'])) {
                                 $row['gap_type'] = 'ok';
                                 $current_status = 'Current';
-                            } elseif (strtolower($status_norm) === 'to be expired') {
-                                $row['gap_type'] = 'tobe';
-                                $current_status = 'To be expired';
                             } else {
                                 $row['gap_type'] = 'na';
                                 $current_status = $status_norm;
                             }
                         }
                     } else {
-                        // No date in database - use the status from DB
                         if (in_array(strtolower($status_norm), ['expired', 'overdue'])) {
                             $row['gap_type'] = 'expired';
                             $current_status = 'Expired';
                         } elseif (in_array(strtolower($status_norm), ['current', 'valid', 'taken', 'passed', 'completed'])) {
                             $row['gap_type'] = 'ok';
                             $current_status = 'Current';
-                        } elseif (strtolower($status_norm) === 'to be expired') {
-                            $row['gap_type'] = 'tobe';
-                            $current_status = 'To be expired';
                         } elseif ($status_norm === 'N/A' || $status_norm === 'Not Taken') {
                             $row['gap_type'] = 'initial';
                             $current_status = 'Not Taken';
@@ -371,11 +324,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                     $row['status'] = $current_status;
                     $results[] = $row;
                 } catch (Exception $e) {
-                    // Table error - mark as not available
                     $row['status'] = 'N/A';
                     $row['gap_type'] = 'na';
                     $results[] = $row;
-                    error_log("Error fetching from table $table for employee $emp_id_submitted: " . $e->getMessage());
                 }
             }
         }
@@ -419,25 +370,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
     if (count($courses_list) === 0) {
         $errors_dispute[] = "Please list at least one course.";
-    }
-
-    // Cooldown check
-    if ($emp_id !== '') {
-        try {
-            $stmt = $pdo->prepare("SELECT created_at FROM training_disputes WHERE employee_id = ? ORDER BY created_at DESC LIMIT 1");
-            $stmt->execute([$emp_id]);
-            $last = $stmt->fetch(PDO::FETCH_ASSOC);
-            if ($last && !empty($last['created_at'])) {
-                $lastDt = new DateTimeImmutable($last['created_at']);
-                $coolUntil = $lastDt->add(new DateInterval('P' . DISPUTE_COOLDOWN_DAYS . 'D'));
-                $now = new DateTimeImmutable('now');
-                if ($coolUntil > $now) {
-                    $errors_dispute[] = "Please try again after one week. You have already submitted a dispute recently.";
-                }
-            }
-        } catch (Exception $e) {
-            // Ignore
-        }
     }
 
     if (empty($errors_dispute)) {
@@ -673,129 +605,124 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
         <?php endif; ?>
 
         <?php if ($employee): ?>
-            <div class="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
-                <div class="bg-gradient-to-r from-blue-800 to-blue-900 text-white p-6">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <div class="text-sm">Employee</div>
-                            <div class="text-2xl font-bold"><?= h($employee['full_name']) ?></div>
-                            <div class="text-sm opacity-90 mt-1">
-                                ID: <span class="font-mono"><?= h($employee['employee_id']) ?></span> —
-                                CC: <?= h($employee['cost_center'] ?? 'N/A') ?> •
-                                <?= h($employee['position'] ?? 'N/A') ?>
+            <div id="printableArea">
+                <div class="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
+                    <div class="bg-gradient-to-r from-blue-800 to-blue-900 text-white p-6">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-sm">Employee</div>
+                                <div class="text-2xl font-bold"><?= h($employee['full_name']) ?></div>
+                                <div class="text-sm opacity-90 mt-1">
+                                    ID: <span class="font-mono"><?= h($employee['employee_id']) ?></span> —
+                                    CC: <?= h($employee['cost_center'] ?? 'N/A') ?> •
+                                    <?= h($employee['position'] ?? 'N/A') ?>
+                                </div>
+                            </div>
+                            <div class="text-right text-sm opacity-80">
+                                <?= count($results) ?> courses loaded
                             </div>
                         </div>
-                        <div class="text-right text-sm opacity-80">
-                            <?= count($results) ?> courses loaded
+                    </div>
+
+                    <div class="p-6">
+                        <!-- AJAX Messages -->
+                        <div id="ajaxMessageContainer">
+                            <?php if ($dispute_ok): ?>
+                                <div class="mb-4 p-4 rounded bg-green-100 text-green-800"><?= h($dispute_msg) ?></div>
+                            <?php elseif (!empty($errors_dispute)): ?>
+                                <div class="mb-4 p-4 rounded bg-red-100 text-red-800">
+                                    <ul class="list-disc pl-5">
+                                        <?php foreach ($errors_dispute as $err): ?>
+                                            <li><?= h($err) ?></li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
                         </div>
-                    </div>
-                </div>
 
-                <div class="p-6">
-                    <!-- AJAX Messages -->
-                    <div id="ajaxMessageContainer">
-                        <?php if ($dispute_ok): ?>
-                            <div class="mb-4 p-4 rounded bg-green-100 text-green-800"><?= h($dispute_msg) ?></div>
-                        <?php elseif (!empty($errors_dispute)): ?>
-                            <div class="mb-4 p-4 rounded bg-red-100 text-red-800">
-                                <ul class="list-disc pl-5">
-                                    <?php foreach ($errors_dispute as $err): ?>
-                                        <li><?= h($err) ?></li>
-                                    <?php endforeach; ?>
-                                </ul>
+                        <!-- Dispute Button and Last Import Date -->
+                        <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
+                            <div class="flex gap-3">
+                                <button id="openDisputeBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">
+                                    Raise Dispute about Training
+                                </button>
+                                <button onclick="window.open('admin/print_pdf.php?emp_id=<?= urlencode((string)$employee['employee_id']) ?>&print=true', '_blank');"
+                                    class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold inline-flex items-center gap-2">
+                                    🖨️ Print Report
+                                </button>
                             </div>
-                        <?php endif; ?>
-                    </div>
 
-                    <!-- Dispute Button and Last Import Date -->
-                    <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
-                        <?php
-                        $canRaise = $employee_dispute_cooldown['can_raise'] ? '1' : '0';
-                        $cooldownUntilAttr = '';
-                        $secondsLeftAttr = '0';
-                        if (!$employee_dispute_cooldown['can_raise'] && $employee_dispute_cooldown['cooldown_until'] instanceof DateTimeImmutable) {
-                            $cooldownUntilAttr = $employee_dispute_cooldown['cooldown_until']->format('Y-m-d\TH:i:s');
-                            $secondsLeftAttr = (string) max(0, (int)$employee_dispute_cooldown['seconds_left']);
-                        }
-                        ?>
-                        <button id="openDisputeBtn"
-                            data-can-raise="<?= h($canRaise) ?>"
-                            data-cooldown-until="<?= h($cooldownUntilAttr) ?>"
-                            data-seconds-left="<?= h($secondsLeftAttr) ?>"
-                            class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">
-                            Raise Dispute about Training
-                        </button>
+                            <?php if ($last_import_date): ?>
+                                <div class="text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-lg">
+                                    📅 Last data update: <?= date('F j, Y \a\t g:i A', strtotime($last_import_date)) ?>
+                                </div>
+                            <?php endif; ?>
+                        </div>
 
-                        <?php if ($last_import_date): ?>
-                            <div class="text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-lg">
-                                📅 Last data update: <?= date('F j, Y \a\t g:i A', strtotime($last_import_date)) ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-
-                    <!-- Courses Table -->
-                    <div class="overflow-x-auto">
-                        <table class="w-full table-auto">
-                            <thead class="bg-gray-100 text-gray-700">
-                                <tr>
-                                    <th class="p-3 text-left">Course</th>
-                                    <th class="p-3 text-center">Completed Date</th>
-                                    <th class="p-3 text-center">Expiry Date</th>
-                                    <th class="p-3 text-center">Status</th>
-                                    <th class="p-3 text-center">Validity</th>
-                                    <th class="p-3 text-center">Note</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($results as $r):
-                                    $completed_disp = ($r['completed'] && $r['completed'] !== '') ? date('Y-m-d', strtotime($r['completed'])) : 'N/A';
-                                    $expiry_disp = $r['expiry'] ?? 'N/A';
-                                    $current_status = $r['status'] ?? 'N/A';
-                                    $badge = badge_class_by_gap($r['gap_type']);
-                                    $validity_months = $r['validity_months'] ?? 24;
-                                ?>
-                                    <tr class="border-b hover:bg-gray-50">
-                                        <td class="p-3 font-medium">
-                                            <div class="font-bold"><?= h($r['course_code']) ?></div>
-                                            <div class="text-sm text-gray-600"><?= h($r['course_name']) ?></div>
-                                        </td>
-                                        <td class="p-3 text-center font-mono"><?= h($completed_disp) ?></td>
-                                        <td class="p-3 text-center font-mono"><?= h($expiry_disp) ?></td>
-                                        <td class="p-3 text-center">
-                                            <span class="inline-block px-3 py-1 rounded-full <?= h($badge) ?> text-sm font-semibold">
-                                                <?= h($current_status) ?>
-                                            </span>
-                                        </td>
-                                        <td class="p-3 text-center text-sm">
-                                            <?= $validity_months ?> months
-                                        </td>
-                                        <td class="p-3 text-center text-sm text-gray-700">
-                                            <?php
-                                            switch ($r['gap_type']) {
-                                                case 'expired':
-                                                    echo 'Expired — training must be renewed';
-                                                    break;
-                                                case 'tobe':
-                                                    echo "To be expired within " . DEFAULT_TO_BE_DAYS . " days";
-                                                    break;
-                                                case 'initial':
-                                                    echo 'Initial training not taken';
-                                                    break;
-                                                case 'ok':
-                                                    echo 'Up to date';
-                                                    break;
-                                                case 'na':
-                                                    echo 'Not available';
-                                                    break;
-                                                default:
-                                                    echo h((string)($r['status_raw'] ?? ''));
-                                            }
-                                            ?>
-                                        </td>
+                        <!-- Courses Table -->
+                        <div class="overflow-x-auto">
+                            <table class="w-full table-auto">
+                                <thead class="bg-gray-100 text-gray-700">
+                                    <tr>
+                                        <th class="p-3 text-left">Course</th>
+                                        <th class="p-3 text-center">Completed Date</th>
+                                        <th class="p-3 text-center">Expiry Date</th>
+                                        <th class="p-3 text-center">Status</th>
+                                        <th class="p-3 text-center">Validity</th>
+                                        <th class="p-3 text-center">Note</th>
                                     </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($results as $r):
+                                        $completed_disp = ($r['completed'] && $r['completed'] !== '') ? date('Y-m-d', strtotime($r['completed'])) : 'N/A';
+                                        $expiry_disp = $r['expiry'] ?? 'N/A';
+                                        $current_status = $r['status'] ?? 'N/A';
+                                        $badge = badge_class_by_gap($r['gap_type']);
+                                        $validity_months = $r['validity_months'] ?? 24;
+                                    ?>
+                                        <tr class="border-b hover:bg-gray-50">
+                                            <td class="p-3 font-medium">
+                                                <div class="font-bold"><?= h($r['course_code']) ?></div>
+                                                <div class="text-sm text-gray-600"><?= h($r['course_name']) ?></div>
+                                            </td>
+                                            <td class="p-3 text-center font-mono"><?= h($completed_disp) ?></td>
+                                            <td class="p-3 text-center font-mono"><?= h($expiry_disp) ?></td>
+                                            <td class="p-3 text-center">
+                                                <span class="inline-block px-3 py-1 rounded-full <?= h($badge) ?> text-sm font-semibold">
+                                                    <?= h($current_status) ?>
+                                                </span>
+                                            </td>
+                                            <td class="p-3 text-center text-sm">
+                                                <?= $validity_months ?> months
+                                            </td>
+                                            <td class="p-3 text-center text-sm text-gray-700">
+                                                <?php
+                                                switch ($r['gap_type']) {
+                                                    case 'expired':
+                                                        echo 'Expired — training must be renewed';
+                                                        break;
+                                                    case 'tobe':
+                                                        echo "To be expired within " . DEFAULT_TO_BE_DAYS . " days";
+                                                        break;
+                                                    case 'initial':
+                                                        echo 'Initial training not taken';
+                                                        break;
+                                                    case 'ok':
+                                                        echo 'Up to date';
+                                                        break;
+                                                    case 'na':
+                                                        echo 'Not available';
+                                                        break;
+                                                    default:
+                                                        echo h((string)($r['status_raw'] ?? ''));
+                                                }
+                                                ?>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -925,23 +852,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
                 modalErrors.innerHTML = '';
-
                 clearAllCourseRows();
-
                 const savedFormData = getSavedFormData();
-
                 if (savedFormData.courses && savedFormData.courses.length > 0) {
-                    savedFormData.courses.forEach(course => {
-                        addCourseRow(course.name, course.date);
-                    });
+                    savedFormData.courses.forEach(course => addCourseRow(course.name, course.date));
                 } else {
                     addCourseRow();
                 }
-
-                if (disputeComment && savedFormData.comment) {
-                    disputeComment.value = savedFormData.comment;
-                }
-
+                if (disputeComment && savedFormData.comment) disputeComment.value = savedFormData.comment;
                 updateNoCoursesMessage();
             }
 
@@ -951,15 +869,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 modal.classList.remove('flex');
             }
 
-            openBtn?.addEventListener('click', function(e) {
-                const canRaise = openBtn.dataset.canRaise === '1';
-                if (!canRaise) {
-                    showTemporaryFlash(false, 'Please try again after one week, as you have already used your quota.', 10000);
-                    return;
-                }
-                openModal();
-            });
-
+            openBtn?.addEventListener('click', openModal);
             closeBtn?.addEventListener('click', closeModal);
             modal?.addEventListener('click', function(e) {
                 if (e.target === modal) closeModal();
@@ -970,7 +880,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                     courses: [],
                     comment: disputeComment ? disputeComment.value.trim() : ''
                 };
-
                 const courseRows = coursesContainer.querySelectorAll('.course-row');
                 courseRows.forEach(row => {
                     const courseInput = row.querySelector('input[name^="dispute_course"]');
@@ -982,47 +891,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                         });
                     }
                 });
-
                 saveFormDataToStorage(savedFormData);
             }
 
             function addCourseRow(courseName = '', courseDate = '') {
                 courseRowCounter++;
                 const rowId = `courseRow_${courseRowCounter}`;
-
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'course-row flex items-center gap-2 p-2 border rounded hover:bg-gray-50';
                 rowDiv.id = rowId;
-
                 const removeBtn = document.createElement('button');
                 removeBtn.type = 'button';
                 removeBtn.className = 'remove-course-btn text-red-500 hover:text-red-700 text-lg font-bold w-6 h-6 flex items-center justify-center';
                 removeBtn.innerHTML = '−';
                 removeBtn.title = 'Remove this course';
                 removeBtn.addEventListener('click', () => removeCourseRow(rowId));
-
                 const courseInput = document.createElement('input');
                 courseInput.type = 'text';
                 courseInput.name = `dispute_course[]`;
                 courseInput.placeholder = 'Course name (e.g., Human Factors)';
                 courseInput.className = 'flex-1 px-3 py-2 border rounded';
                 courseInput.value = courseName;
-
                 const dateInput = document.createElement('input');
                 dateInput.type = 'date';
                 dateInput.name = `dispute_course_date[]`;
                 dateInput.className = 'w-40 px-3 py-2 border rounded';
                 dateInput.value = courseDate;
-
                 rowDiv.appendChild(removeBtn);
                 rowDiv.appendChild(courseInput);
                 rowDiv.appendChild(dateInput);
                 coursesContainer.appendChild(rowDiv);
-
                 updateNoCoursesMessage();
-
                 if (!courseName) setTimeout(() => courseInput.focus(), 10);
-
                 courseInput.addEventListener('input', saveFormData);
                 dateInput.addEventListener('input', saveFormData);
             }
@@ -1048,19 +948,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
             function updateNoCoursesMessage() {
                 const rows = coursesContainer.querySelectorAll('.course-row').length;
-                if (noCoursesMessage) {
-                    noCoursesMessage.style.display = rows === 0 ? 'block' : 'none';
-                }
+                if (noCoursesMessage) noCoursesMessage.style.display = rows === 0 ? 'block' : 'none';
             }
 
             addCourseRowBtn?.addEventListener('click', () => addCourseRow());
-
             clearAllBtn?.addEventListener('click', () => {
-                if (confirm('Are you sure you want to clear ALL courses and the comment?')) {
-                    clearAllCourseRowsAndComment();
-                }
+                if (confirm('Are you sure you want to clear ALL courses and the comment?')) clearAllCourseRowsAndComment();
             });
-
             if (disputeComment) disputeComment.addEventListener('input', saveFormData);
 
             function showAjaxMessage(success, message) {
@@ -1083,18 +977,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
             disputeForm?.addEventListener('submit', function(e) {
                 e.preventDefault();
                 modalErrors.innerHTML = '';
-
                 const courseRows = coursesContainer.querySelectorAll('.course-row');
                 let hasValidCourse = false;
                 let validationErrors = [];
-
                 courseRows.forEach((row, index) => {
                     const courseInput = row.querySelector('input[name^="dispute_course"]');
                     const dateInput = row.querySelector('input[name^="dispute_course_date"]');
-
                     const courseName = courseInput ? courseInput.value.trim() : '';
                     const courseDate = dateInput ? dateInput.value.trim() : '';
-
                     if (courseName === '' && courseDate === '') {
                         validationErrors.push(`Row ${index + 1}: Please fill in the course name and date or remove this row.`);
                     } else if (courseName === '') {
@@ -1105,7 +995,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                         hasValidCourse = true;
                     }
                 });
-
                 if (validationErrors.length > 0) {
                     const ul = document.createElement('ul');
                     ul.className = 'list-disc pl-6 text-left';
@@ -1114,17 +1003,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                         li.textContent = err;
                         ul.appendChild(li);
                     });
-                    modalErrors.innerHTML = `<div class="mb-4 p-4 rounded bg-orange-100 text-orange-800 border border-orange-300">
-                <strong>Please fix the following:</strong>${ul.outerHTML}
-            </div>`;
+                    modalErrors.innerHTML = `<div class="mb-4 p-4 rounded bg-orange-100 text-orange-800 border border-orange-300"><strong>Please fix the following:</strong>${ul.outerHTML}</div>`;
                     return;
                 }
-
                 if (!hasValidCourse) {
                     modalErrors.innerHTML = '<div class="mb-4 p-4 rounded bg-orange-100 text-orange-800 border border-orange-300">Please add at least one complete course (name and date).</div>';
                     return;
                 }
-
                 const formData = new FormData(disputeForm);
                 fetch(location.href, {
                         method: 'POST',
@@ -1141,12 +1026,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                             showAjaxMessage(true, data.message || 'Dispute submitted successfully!');
                             closeModal();
                             clearAllCourseRowsAndComment();
-                            openBtn.dataset.canRaise = '0';
                         } else {
                             const errs = data.errors || [data.message || 'Submission failed'];
-                            if (errs.length === 1 && errs[0].toLowerCase().includes('please try after 1 week')) {
-                                showTemporaryFlash(false, errs[0], 10000);
-                            }
                             const ul = document.createElement('ul');
                             ul.className = 'list-disc pl-5';
                             errs.forEach(err => {
@@ -1160,14 +1041,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                     .catch(err => {
                         modalErrors.innerHTML = `<div class="mb-4 p-3 rounded bg-red-50 text-red-800">Network or server error: ${err.message}</div>`;
                     });
-            });
-
-            document.addEventListener('DOMContentLoaded', () => {
-                const lastId = localStorage.getItem('last_employee_id');
-                if (lastId && lastId !== EMPLOYEE_ID) {
-                    localStorage.removeItem(`dispute_form_data_${lastId}`);
-                }
-                if (EMPLOYEE_ID) localStorage.setItem('last_employee_id', EMPLOYEE_ID);
             });
         })();
     </script>
