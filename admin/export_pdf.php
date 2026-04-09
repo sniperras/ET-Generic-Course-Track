@@ -1,12 +1,14 @@
 <?php
-// admin/export_pdf.php - TWO-PAGE FIT VERSION
+// admin/export_pdf.php - SINGLE PAGE PORTRAIT VERSION (FIXED LAYOUT)
 
 require_once '../include/db_connect.php';
 require_once '../include/auth.php';
 requireAdmin();
 
 // Clear any output
-if (ob_get_level()) { ob_end_clean(); }
+if (ob_get_level()) {
+    ob_end_clean();
+}
 
 if (!isset($_GET['emp_id']) || empty($_GET['emp_id'])) {
     die('No employee selected.');
@@ -64,276 +66,239 @@ foreach ($courses as $course) {
 
 // Load TCPDF
 require_once '../TCPDF/tcpdf.php';
-$pdf = new TCPDF('L', 'mm', 'A4', true, 'UTF-8', false);
+
+// Create PDF in PORTRAIT orientation
+$pdf = new TCPDF('P', 'mm', 'A4', true, 'UTF-8', false);
 $pdf->SetCreator('GenericCourseTrack');
 $pdf->SetAuthor('Ethiopian Airlines Aviation Academy');
 $pdf->SetTitle('Training Compliance Report - ' . $employee['full_name']);
-$pdf->SetMargins(12, 15, 12); // left, top, right
-$pdf->SetAutoPageBreak(TRUE, 20);
+$pdf->SetMargins(10, 10, 10);
+$pdf->SetAutoPageBreak(TRUE, 15);
 $pdf->setPrintHeader(false);
 $pdf->setPrintFooter(false);
 $pdf->AddPage();
 
 // ---------------- LETTERHEAD ----------------
 $pdf->SetFillColor(0, 74, 173);
-$pdf->Rect(0, 0, 297, 40, 'F');
+$pdf->Rect(0, 0, 210, 32, 'F');
+
+// Logo
 if (file_exists('../img/logo.png')) {
-    $pdf->Image('../img/logo.png', 15, 8, 50, 0, 'PNG');
+    $pdf->Image('../img/logo.png', 10, 6, 35, 0, 'PNG');
 }
-$pdf->SetTextColor(255,255,255);
-$pdf->SetFont('helvetica', 'B', 22);
-$pdf->SetXY(70, 12);
-$pdf->Cell(0, 10, 'ETHIOPIAN AIRLINES', 0, 1, 'L');
-$pdf->SetFont('helvetica', '', 15);
-$pdf->SetXY(70, 22);
-$pdf->Cell(0, 10, 'Aviation Academy – Technical Training Department', 0, 1, 'L');
-$pdf->SetFont('helvetica', 'I', 11);
-$pdf->SetXY(70, 30);
-$pdf->Cell(0, 10, 'Addis Ababa, Ethiopia | training@ethiopianairlines.com', 0, 1, 'L');
-$pdf->SetDrawColor(0,0,0);
-$pdf->SetLineWidth(1);
-$pdf->Line(12, 42, 285, 42);
 
-// ---------------- MAIN TITLE + META ----------------
-$pdf->Ln(18);
+// Company Name
+$pdf->SetTextColor(255, 255, 255);
+$pdf->SetFont('helvetica', 'B', 14);
+$pdf->SetXY(50, 8);
+$pdf->Cell(0, 7, 'ETHIOPIAN AIRLINES', 0, 1, 'L');
+
+// Department
+$pdf->SetFont('helvetica', '', 10);
+$pdf->SetXY(50, 15);
+$pdf->Cell(0, 6, 'Aviation Academy – Technical Training Department', 0, 1, 'L');
+
+// Address
+$pdf->SetFont('helvetica', 'I', 8);
+$pdf->SetXY(50, 21);
+$pdf->Cell(0, 5, 'Addis Ababa, Ethiopia | training@ethiopianairlines.com', 0, 1, 'L');
+
+// Separator Line
+$pdf->SetDrawColor(0, 0, 0);
+$pdf->SetLineWidth(0.5);
+$pdf->Line(10, 36, 200, 36);
+
+// ---------------- MAIN TITLE ----------------
+$pdf->Ln(10);
 $pdf->SetTextColor(0);
-$pdf->SetFont('helvetica', 'B', 24);
-$pdf->Cell(0, 15, 'RECURRENT TRAINING COMPLIANCE REPORT', 0, 1, 'C');
-$pdf->Ln(8);
-$pdf->SetFont('helvetica', '', 11);
-$pdf->Cell(0, 8, 'Generated on: ' . date('d F Y \a\t H:i'), 0, 1, 'R');
-$pdf->Ln(12);
+$pdf->SetFont('helvetica', 'B', 16);
+$pdf->Cell(0, 10, 'RECURRENT TRAINING COMPLIANCE REPORT', 0, 1, 'C');
+$pdf->SetFont('helvetica', '', 9);
+$pdf->Cell(0, 6, 'Generated on: ' . date('d F Y \a\t H:i'), 0, 1, 'R');
+$pdf->Ln(6);
 
-// ---------------- EMPLOYEE INFO ----------------
+// ---------------- EMPLOYEE INFO SECTION ----------------
 $pdf->SetFillColor(0, 74, 173);
 $pdf->SetTextColor(255);
-$pdf->SetFont('helvetica', 'B', 14);
-$pdf->Cell(0, 12, ' TECHNICIAN INFORMATION ', 0, 1, 'C', true);
+$pdf->SetFont('helvetica', 'B', 11);
+$pdf->Cell(0, 8, ' TECHNICIAN INFORMATION ', 0, 1, 'C', true);
 
 $pdf->SetTextColor(0);
-$pdf->SetFillColor(240,245,255);
-$pdf->SetFont('helvetica', '', 12);
+$pdf->SetFillColor(245, 248, 250);
+$pdf->SetFont('helvetica', '', 9);
 
-$info = [
+// Employee info in two columns
+$info_left = [
     'Employee ID' => $employee['employee_id'],
     'Full Name' => $employee['full_name'],
     'Position' => $employee['position'] ?: 'Not Assigned',
+];
+
+$info_right = [
     'Department' => $employee['department'] ?: 'Not Assigned',
     'Fleet Assignment' => $employee['fleet'] ?: 'Not Assigned',
     'Cost Center' => $employee['cost_center'] ?: 'Not Assigned',
 ];
 
-foreach ($info as $label => $value) {
-    $pdf->Cell(60, 11, $label . ':', 1, 0, 'L', true);
-    $pdf->Cell(0, 11, $value, 1, 1, 'L', true);
+$max_rows = max(count($info_left), count($info_right));
+$left_keys = array_keys($info_left);
+$right_keys = array_keys($info_right);
+
+for ($i = 0; $i < $max_rows; $i++) {
+    // Left column
+    if (isset($left_keys[$i])) {
+        $label = $left_keys[$i];
+        $value = $info_left[$label];
+        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->Cell(40, 7, $label . ':', 1, 0, 'L', true);
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->Cell(65, 7, $value, 1, 0, 'L', true);
+    } else {
+        $pdf->Cell(105, 7, '', 1, 0, 'L', true);
+    }
+
+    // Right column
+    if (isset($right_keys[$i])) {
+        $label = $right_keys[$i];
+        $value = $info_right[$label];
+        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->Cell(40, 7, $label . ':', 1, 0, 'L', true);
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->Cell(0, 7, $value, 1, 1, 'L', true);
+    } else {
+        $pdf->Cell(0, 7, '', 1, 1, 'L', true);
+    }
 }
-$pdf->Ln(8); // smaller gap to save space
+$pdf->Ln(4);
 
-// ---------------- PREPARE TABLE (we will compute how many rows per page) ----------------
-$header = ['No', 'Course Code', 'Course Name', 'Completed Date', 'Status', 'Remark'];
-// Column widths chosen to exactly fit inside usable width (297 - left - right)
-$w = [12, 28, 120, 34, 36, 40]; // total = 270 (approx). Adjusted for margins.
-
-$pdf->SetFont('helvetica', 'B', 11);
-$pdf->SetFillColor(220,230,250);
-$pdf->SetTextColor(0);
-
-// Print table header now (on first page) and determine where the table starts
-foreach ($header as $i => $h) { $pdf->Cell($w[$i], 12, $h, 1, 0, 'C', true); }
-$pdf->Ln();
-
-// get measurements
-$pageHeight = $pdf->getPageHeight();              // page height in mm (210 for A4 portrait; we are landscape)
-$breakMargin = $pdf->getBreakMargin();            // bottom margin for auto-page-break
-$margins = $pdf->getMargins();                    // array with left, top, right probably keys ('left','top','right')
-$topMargin = is_array($margins) && isset($margins['top']) ? $margins['top'] : ($margins[1] ?? 15);
-
-// available space for rows on page 1 after printing header
-$startY = $pdf->GetY();
-$available_first = $pageHeight - $breakMargin - $startY;
-
-// available space for rows on page 2 (conservative): assume table header will be printed on top of page 2
-$tableHeaderHeight = 12; // we used 12 for header height
-$available_second = $pageHeight - $breakMargin - $topMargin - $tableHeaderHeight - 4; // small padding
+// ---------------- COURSES TABLE ----------------
+// Calculate available space for table
+$pageHeight = $pdf->getPageHeight();
+$currentY = $pdf->GetY();
+$availableSpace = $pageHeight - $currentY - 55; // Reserve 55mm for signature
 
 $total_rows = count($records);
+$row_height = 6.5;
 
-// Choose row height & font size so everything fits into two pages
-$chosen_row_h = null;
-$chosen_font = null;
-
-// Try row heights from 11 down to 6 (mm) and pick the first that fits
-for ($row_h = 11; $row_h >= 6; $row_h--) {
-    // choose font size associated (rough mapping)
-    if ($row_h >= 11) $fs = 11;
-    elseif ($row_h === 10) $fs = 10;
-    elseif ($row_h >= 8) $fs = 9;
-    else $fs = 8;
-
-    $fit1 = (int) floor($available_first / $row_h);
-    $fit2 = (int) floor($available_second / $row_h);
-    if ($fit1 + $fit2 >= $total_rows) {
-        $chosen_row_h = $row_h;
-        $chosen_font = $fs;
-        $rows_first = $fit1;
-        $rows_second = $fit2;
-        break;
-    }
-}
-
-// If nothing found, use smallest with larger capacity but still force two pages by splitting
-if ($chosen_row_h === null) {
-    $chosen_row_h = 6;
-    $chosen_font = 8;
-    $rows_first = (int) floor($available_first / $chosen_row_h);
-    $rows_second = (int) floor($available_second / $chosen_row_h);
-    // If still not enough, we will still split by ceil(total/2) below
-}
-
-// If computed capacities are tiny, ensure at least 1 row per page
-$rows_first = max(1, $rows_first ?? 0);
-$rows_second = max(1, $rows_second ?? 0);
-
-// determine exact split: try to fill first page as much as possible (but leaving at least 1 row for page 2)
-if ($rows_first >= $total_rows) {
-    // everything fits on first page (rare), just put all there and keep signature on same page
-    $per_page_first = $total_rows;
-    $per_page_second = 0;
+// Adjust row height if needed
+if ($total_rows * $row_height > $availableSpace) {
+    $row_height = 5.5;
+    $font_size = 7.5;
 } else {
-    // otherwise we want everything on two pages; cap first page to rows_first, but also ensure not empty second page
-    $per_page_first = min($rows_first, $total_rows - 1);
-    $per_page_second = $total_rows - $per_page_first;
-    // If computed second capacity insufficient for remaining, re-balance: do ceil(total/2)
-    if ($per_page_second > $rows_second) {
-        $per_page_first = (int) ceil($total_rows / 2);
-        $per_page_second = $total_rows - $per_page_first;
-    }
+    $font_size = 8.5;
 }
 
-// Now print rows with chosen sizes, repeating header on second page, signature only on last page
-$pdf->SetFont('helvetica', '', $chosen_font);
+// Column widths that fit within A4 (190mm usable width)
+$w = [7, 20, 105, 28, 30]; // Total: 190mm
 
-// pointer to records
-$idx = 0;
+$header = ['#', 'Code', 'Course Name', 'Date', 'Status'];
+
+$pdf->SetFont('helvetica', 'B', 9);
+$pdf->SetFillColor(220, 230, 250);
+$pdf->SetTextColor(0);
+
+// Print table header
+foreach ($header as $i => $h) {
+    $pdf->Cell($w[$i], 8, $h, 1, 0, 'C', true);
+}
+$pdf->Ln();
+
+// Print all records
 $no = 1;
+$pdf->SetFont('helvetica', '', $font_size);
 
-// helper to (re)print table header (used for page 2)
-$printTableHeader = function() use ($pdf, $header, $w) {
-    $pdf->SetFont('helvetica', 'B', 11);
-    $pdf->SetFillColor(220,230,250);
+foreach ($records as $record) {
+    // Get color and display text for status
+    $status_lower = strtolower($record['status']);
+    if ($status_lower === 'current' || $status_lower === 'taken') {
+        $r = 0;
+        $g = 128;
+        $b = 0;
+        $status_display = 'Current';
+    } elseif ($status_lower === 'expired') {
+        $r = 220;
+        $g = 53;
+        $b = 69;
+        $status_display = 'Expired';
+    } elseif ($status_lower === 'pending') {
+        $r = 255;
+        $g = 140;
+        $b = 0;
+        $status_display = 'Pending';
+    } else {
+        $r = 108;
+        $g = 117;
+        $b = 125;
+        $status_display = $record['status'] ?: 'N/A';
+    }
+
+    // Check for page break
+    if ($pdf->GetY() + $row_height > $pageHeight - 50) {
+        $pdf->AddPage();
+        // Reprint header on new page
+        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->SetFillColor(220, 230, 250);
+        foreach ($header as $i => $h) {
+            $pdf->Cell($w[$i], 8, $h, 1, 0, 'C', true);
+        }
+        $pdf->Ln();
+        $pdf->SetFont('helvetica', '', $font_size);
+    }
+
+    // Print row
+    $pdf->Cell($w[0], $row_height, $no++, 1, 0, 'C');
+    $pdf->Cell($w[1], $row_height, $record['course_code'], 1, 0, 'L');
+
+    // Course name with truncation
+    $course_name = $record['course_name'];
+    $max_len = 55;
+    if (mb_strlen($course_name) > $max_len) {
+        $course_name = mb_substr($course_name, 0, $max_len - 3) . '...';
+    }
+    $pdf->Cell($w[2], $row_height, $course_name, 1, 0, 'L');
+    $pdf->Cell($w[3], $row_height, $record['taken_date'] ?: '—', 1, 0, 'C');
+
+    $pdf->SetTextColor($r, $g, $b);
+    $pdf->SetFont('helvetica', 'B', $font_size);
+    $pdf->Cell($w[4], $row_height, $status_display, 1, 0, 'C');
     $pdf->SetTextColor(0);
-    foreach ($header as $i => $h) { $pdf->Cell($w[$i], 12, $h, 1, 0, 'C', true); }
+    $pdf->SetFont('helvetica', '', $font_size);
     $pdf->Ln();
-    $pdf->SetFont('helvetica', '', 11);
-};
-
-// Print first page rows (up to $per_page_first)
-for ($i = 0; $i < $per_page_first; $i++) {
-    $record = $records[$idx++];
-
-    // compute color for status
-    switch (strtolower($record['status'])) {
-        case 'current': $r=0;$g=140;$b=0; break;
-        case 'expired': $r=200;$g=0;$b=0; break;
-        case 'pending': $r=200;$g=100;$b=0; break;
-        default: $r=0;$g=0;$b=0; break;
-    }
-
-    $pdf->Cell($w[0], $chosen_row_h, $no++, 1, 0, 'C');
-    $pdf->Cell($w[1], $chosen_row_h, $record['course_code'], 1, 0, 'L');
-    // Course name may be long; use MultiCell if it wraps (but keep row aligned)
-    $xBefore = $pdf->GetX();
-    $yBefore = $pdf->GetY();
-    $pdf->Cell($w[2], $chosen_row_h, $record['course_name'], 1, 0, 'L');
-    $pdf->Cell($w[3], $chosen_row_h, $record['taken_date'] ?: '—', 1, 0, 'C');
-    $pdf->SetTextColor($r,$g,$b);
-    $pdf->SetFont('helvetica', 'B', $chosen_font);
-    $pdf->Cell($w[4], $chosen_row_h, ucfirst($record['status']), 1, 0, 'C');
-    $pdf->SetTextColor(0);
-    $pdf->SetFont('helvetica', '', $chosen_font);
-    // empty remark
-    $pdf->Cell($w[5], $chosen_row_h, '', 1, 1);
 }
 
-// If there are remaining rows, add new page and print header then remaining rows
-if ($idx < $total_rows) {
-    $pdf->AddPage();
-    // Print the table header on the second page
-    $printTableHeader();
+$pdf->Ln(4);
 
-    // How many to print on second page: either $per_page_second or remaining
-    $to_print = min($per_page_second, $total_rows - $idx);
-    // If $to_print is 0, print remaining
-    if ($to_print <= 0) $to_print = $total_rows - $idx;
+// ---------------- SIGNATURE BLOCK (COMPACT) ----------------
+$pdf->SetFont('helvetica', '', 8.5);
+$pdf->MultiCell(0, 4.5, "This is to certify that the above technician has completed the required recurrent training as per Ethiopian Civil Aviation Authority (ECAA) and EASA Part-145 requirements.", 0, 'C');
+$pdf->Ln(3);
 
-    for ($j = 0; $j < $to_print; $j++) {
-        $record = $records[$idx++];
+// Signature lines - 3 columns with equal width
+$col_width = 62; // 3 columns = 186mm total
 
-        switch (strtolower($record['status'])) {
-            case 'current': $r=0;$g=140;$b=0; break;
-            case 'expired': $r=200;$g=0;$b=0; break;
-            case 'pending': $r=200;$g=100;$b=0; break;
-            default: $r=0;$g=0;$b=0; break;
-        }
+$pdf->SetFont('helvetica', 'B', 9);
+$pdf->Cell($col_width, 6, 'Prepared by:', 0, 0, 'C');
+$pdf->Cell($col_width, 6, 'Approved by:', 0, 0, 'C');
+$pdf->Cell($col_width, 6, 'Verified by:', 0, 1, 'C');
 
-        $pdf->Cell($w[0], $chosen_row_h, $no++, 1, 0, 'C');
-        $pdf->Cell($w[1], $chosen_row_h, $record['course_code'], 1, 0, 'L');
-        $pdf->Cell($w[2], $chosen_row_h, $record['course_name'], 1, 0, 'L');
-        $pdf->Cell($w[3], $chosen_row_h, $record['taken_date'] ?: '—', 1, 0, 'C');
-        $pdf->SetTextColor($r,$g,$b);
-        $pdf->SetFont('helvetica', 'B', $chosen_font);
-        $pdf->Cell($w[4], $chosen_row_h, ucfirst($record['status']), 1, 0, 'C');
-        $pdf->SetTextColor(0);
-        $pdf->SetFont('helvetica', '', $chosen_font);
-        $pdf->Cell($w[5], $chosen_row_h, '', 1, 1);
-    }
+$pdf->SetFont('helvetica', '', 9);
+$pdf->Cell($col_width, 12, '_________________________', 0, 0, 'C');
+$pdf->Cell($col_width, 12, '_________________________', 0, 0, 'C');
+$pdf->Cell($col_width, 12, '_________________________', 0, 1, 'C');
 
-    // If there are still remaining rows (shouldn't happen), print them on the same second page (they will wrap or overflow).
-    while ($idx < $total_rows) {
-        $record = $records[$idx++];
-        switch (strtolower($record['status'])) {
-            case 'current': $r=0;$g=140;$b=0; break;
-            case 'expired': $r=200;$g=0;$b=0; break;
-            case 'pending': $r=200;$g=100;$b=0; break;
-            default: $r=0;$g=0;$b=0; break;
-        }
-        $pdf->Cell($w[0], $chosen_row_h, $no++, 1, 0, 'C');
-        $pdf->Cell($w[1], $chosen_row_h, $record['course_code'], 1, 0, 'L');
-        $pdf->Cell($w[2], $chosen_row_h, $record['course_name'], 1, 0, 'L');
-        $pdf->Cell($w[3], $chosen_row_h, $record['taken_date'] ?: '—', 1, 0, 'C');
-        $pdf->SetTextColor($r,$g,$b);
-        $pdf->SetFont('helvetica', 'B', $chosen_font);
-        $pdf->Cell($w[4], $chosen_row_h, ucfirst($record['status']), 1, 0, 'C');
-        $pdf->SetTextColor(0);
-        $pdf->SetFont('helvetica', '', $chosen_font);
-        $pdf->Cell($w[5], $chosen_row_h, '', 1, 1);
-    }
-}
+$pdf->SetFont('helvetica', '', 8);
+$pdf->Cell($col_width, 5, 'Training Coordinator', 0, 0, 'C');
+$pdf->Cell($col_width, 5, 'Quality Manager', 0, 0, 'C');
+$pdf->Cell($col_width, 5, 'Head of Training', 0, 1, 'C');
 
-// ---------------- SIGNATURE BLOCK (ONLY on the last page) ----------------
-$pdf->Ln(6);
-$pdf->SetFont('helvetica', '', 12);
-$pdf->MultiCell(0, 8, "This is to certify that the above technician has completed the required recurrent training\nas per Ethiopian Civil Aviation Authority (ECAA) and EASA Part-145 requirements.", 0, 'C');
-$pdf->Ln(12);
-$pdf->SetFont('helvetica', 'B', 12);
-$pdf->Cell(90, 10, 'Prepared by:', 0, 0, 'L');
-$pdf->Cell(90, 10, 'Approved by:', 0, 0, 'L');
-$pdf->Cell(90, 10, 'Verified by:', 0, 1, 'L');
-$pdf->SetFont('helvetica', '', 11);
-$pdf->Cell(90, 25, '___________________________', 0, 0);
-$pdf->Cell(90, 25, '___________________________', 0, 0);
-$pdf->Cell(90, 25, '___________________________', 0, 1);
-$pdf->SetFont('helvetica', '', 11);
-$pdf->Cell(90, 8, 'Training Coordinator', 0, 0);
-$pdf->Cell(90, 8, 'Quality Manager', 0, 0);
-$pdf->Cell(90, 8, 'Head of Training', 0, 1);
-$pdf->SetFont('helvetica', 'I', 10);
-$pdf->Cell(90, 8, 'Date: ________________', 0, 0);
-$pdf->Cell(90, 8, 'Date: ________________', 0, 0);
-$pdf->Cell(90, 8, 'Date: ________________', 0, 1);
-$pdf->Ln(6);
-$pdf->SetFont('helvetica', 'I', 10);
-$pdf->Cell(0, 10, 'Generated by GenericCourseTrack © ' . date('Y') . ' Ethiopian Airlines Aviation Academy', 0, 1, 'C');
+$pdf->SetFont('helvetica', 'I', 8);
+$pdf->Cell($col_width, 5, 'Date: _____________', 0, 0, 'C');
+$pdf->Cell($col_width, 5, 'Date: _____________', 0, 0, 'C');
+$pdf->Cell($col_width, 5, 'Date: _____________', 0, 1, 'C');
+
+$pdf->Ln(4);
+$pdf->SetFont('helvetica', 'I', 7);
+$pdf->Cell(0, 5, 'Generated by GenericCourseTrack © ' . date('Y') . ' Ethiopian Airlines Aviation Academy', 0, 1, 'C');
 
 // OUTPUT
 $safeName = preg_replace('/[^A-Za-z0-9_\-\. ]/', '_', ($employee['full_name'] ?? $emp_id));
