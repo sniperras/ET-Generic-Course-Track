@@ -21,11 +21,11 @@ This software is **proprietary and confidential**. No license or permission is g
 
 You are **not permitted** to:
 
-* Use the software for any purpose, commercial or otherwise
-* Copy, modify, adapt, or create derivative works
-* Deploy, host, or execute the system publicly
-* Distribute, sublicense, sell, or transfer any portion of the software
-* Reverse engineer, decompile, or analyze the implementation
+- Use the software for any purpose, commercial or otherwise
+- Copy, modify, adapt, or create derivative works
+- Deploy, host, or execute the system publicly
+- Distribute, sublicense, sell, or transfer any portion of the software
+- Reverse engineer, decompile, or analyze the implementation
 
 Any use requires **prior written authorization** from the copyright holder.
 
@@ -37,11 +37,11 @@ Refer to the `LICENSE` file for full legal terms, penalties, and enforcement pro
 
 ET-Generic-Course-Track is designed to:
 
-* Track employee course enrollment, completion, and validity
-* Manage disputes and validation workflows for training records
-* Generate PDF certificates and export reports
-* Provide role-based access control for administrators and managers
-* Support structured reporting for audits and compliance
+- Track employee course enrollment, completion, and validity
+- Manage disputes and validation workflows for training records
+- Generate PDF certificates and export reports
+- Provide role-based access control for administrators and managers
+- Support structured reporting for audits and compliance
 
 All technical and operational details remain confidential and restricted.
 
@@ -51,9 +51,9 @@ All technical and operational details remain confidential and restricted.
 
 This repository is intended **only** for:
 
-* Authorized stakeholders
-* Internal reviewers or management
-* Legal, audit, or governance purposes
+- Authorized stakeholders
+- Internal reviewers or management
+- Legal, audit, or governance purposes
 
 It is **not** intended for public use, open-source contribution, or third-party deployment.
 
@@ -61,7 +61,7 @@ It is **not** intended for public use, open-source contribution, or third-party 
 
 ## Ownership
 
-© 2025 **Natnael Bizuneh Zenebe**  
+© 2026 **Natnael Bizuneh Zenebe**  
 All rights reserved.
 
 The software, documentation, database structure, and all related materials are the exclusive intellectual property of the author and are protected under Ethiopian and international copyright laws.
@@ -71,7 +71,7 @@ The software, documentation, database structure, and all related materials are t
 ## Licensing
 
 This project is released under a **Proprietary Restricted License**.  
-No rights are granted to use, copy, modify, or distribute this software.  
+No rights are granted to use, copy, modify, or distribute this software.
 
 See the `LICENSE` file for complete and binding legal terms, penalties, and enforcement provisions.
 
@@ -83,7 +83,7 @@ For licensing inquiries, formal authorization, or written permission to use this
 
 **Natnael Bizuneh Zenebe**  
 GitHub: [https://github.com/sniperras/ET-Generic-Course-Track](https://github.com/sniperras/ET-Generic-Course-Track)  
-Email: [sniperrasmtat0989@gmail.com]  
+Email: [sniperrasmtat0989@gmail.com]
 
 Unauthorized use may result in civil and/or criminal liability under applicable law.
 
