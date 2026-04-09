@@ -8,6 +8,9 @@ require_once __DIR__ . '/include/db_connect.php';
 const DEFAULT_TO_BE_DAYS = 90;
 const DISPUTE_COOLDOWN_DAYS = 7;
 
+// Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'RSTPM'];
+
 /* --------- Helpers --------- */
 function safe_table(string $t): bool
 {
@@ -99,6 +102,29 @@ function badge_class_by_status(string $status): string
     }
 }
 
+// Get last import date from any course_records table
+function getLastImportDate($pdo): ?string
+{
+    $tables = $pdo->query("SHOW TABLES LIKE 'course_records_%'")->fetchAll(PDO::FETCH_COLUMN);
+    $latest_date = null;
+
+    foreach ($tables as $table) {
+        try {
+            $stmt = $pdo->query("SELECT MAX(LastUpdated) as last_updated FROM `$table`");
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($result && $result['last_updated']) {
+                if (!$latest_date || $result['last_updated'] > $latest_date) {
+                    $latest_date = $result['last_updated'];
+                }
+            }
+        } catch (Exception $e) {
+            // Skip tables that don't have LastUpdated column
+        }
+    }
+
+    return $latest_date;
+}
+
 /* --------- Handle Dispute Status Check --------- */
 $dispute_status_result = null;
 $dispute_error = '';
@@ -138,6 +164,7 @@ $employee = null;
 $emp_id_submitted = '';
 $results = [];
 $error = '';
+$last_import_date = getLastImportDate($pdo);
 
 $employee_dispute_cooldown = [
     'can_raise' => true,
@@ -185,6 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                 $course_code = $c['course_code'];
                 $course_name = $c['course_name'];
                 $validity_months = (int)$c['validity_months'];
+                $never_expire = in_array($course_code, $GLOBALS['NEVER_EXPIRE_COURSES']);
 
                 $row = [
                     'course_id' => $course_id,
@@ -196,7 +224,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                     'status' => null,
                     'expiry' => null,
                     'gap_type' => 'initial',
-                    'validity_months' => $validity_months
+                    'validity_months' => $validity_months,
+                    'never_expire' => $never_expire
                 ];
 
                 // Check if course has a valid table
@@ -246,8 +275,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                     $status_raw = trim((string)($rec['Status'] ?? ''));
                     $row['status_raw'] = $status_raw;
 
-                    // Normalize status - Map "Taken" to "Current"
                     $st_lower = mb_strtolower($status_raw);
+
+                    // CRITICAL FIX: For courses with "Taken" or "Current" status but NO completion date -> show as "Not Taken"
+                    if (($st_lower === 'taken' || $st_lower === 'current') && ($parsed === null || $parsed === '')) {
+                        $row['status'] = 'Not Taken';
+                        $row['gap_type'] = 'initial';
+                        $results[] = $row;
+                        continue;
+                    }
+
+                    // For never-expire courses with a valid date -> show as "Current" (they never expire)
+                    if ($never_expire && $parsed !== null && $parsed !== '') {
+                        $row['gap_type'] = 'ok';
+                        $row['status'] = 'Current';
+                        $results[] = $row;
+                        continue;
+                    }
+
+                    // For never-expire courses without a date -> already handled above as "Not Taken"
+
+                    // Normalize status for regular courses
                     if ($st_lower === '' || in_array($st_lower, ['n/a', 'na', '—', '-', 'none'], true)) {
                         $status_norm = 'N/A';
                     } elseif (in_array($st_lower, ['current', 'valid', 'taken', 'passed', 'completed'])) {
@@ -659,8 +707,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                         <?php endif; ?>
                     </div>
 
-                    <!-- Dispute Button -->
-                    <div class="mb-6">
+                    <!-- Dispute Button and Last Import Date -->
+                    <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
                         <?php
                         $canRaise = $employee_dispute_cooldown['can_raise'] ? '1' : '0';
                         $cooldownUntilAttr = '';
@@ -677,6 +725,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                             class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">
                             Raise Dispute about Training
                         </button>
+
+                        <?php if ($last_import_date): ?>
+                            <div class="text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-lg">
+                                📅 Last data update: <?= date('F j, Y \a\t g:i A', strtotime($last_import_date)) ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
 
                     <!-- Courses Table -->
