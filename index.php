@@ -646,7 +646,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                                 <button id="openDisputeBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">
                                     Raise Dispute about Training
                                 </button>
-                                <button onclick="window.open('admin/print_pdf.php?emp_id=<?= urlencode((string)$employee['employee_id']) ?>&print=true', '_blank');"
+                                <button onclick="window.open('print_pdf.php?emp_id=<?= urlencode((string)$employee['employee_id']) ?>&print=true', '_blank');"
                                     class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold inline-flex items-center gap-2">
                                     🖨️ Print Report
                                 </button>
