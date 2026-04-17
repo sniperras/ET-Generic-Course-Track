@@ -53,6 +53,32 @@ function hasRole($requiredRole): bool {
 }
 
 /**
+ * Check if user can access a specific page based on role
+ * @param string $page The page parameter value (e.g., 'dashboard', 'users')
+ * @return bool True if user has access to the page
+ */
+function canAccessPage(string $page): bool {
+    $userRole = getCurrentUserRole();
+    
+    // Admin can access all pages
+    if ($userRole === 'admin') {
+        return true;
+    }
+    
+    // HR can access all pages except 'users'
+    if ($userRole === 'hr') {
+        return $page !== 'users';
+    }
+    
+    // Viewer can only access 'dashboard' page
+    if ($userRole === 'viewer') {
+        return $page === 'dashboard';
+    }
+    
+    return false;
+}
+
+/**
  * Require specific role(s) to access a page
  * @param string|array $requiredRole Role or array of roles required
  * @param string $redirectPage Page to redirect to if access denied
@@ -63,6 +89,29 @@ function requireRole($requiredRole, string $redirectPage = 'admin_panel.php?page
     if (!hasRole($requiredRole)) {
         $_SESSION['error_message'] = 'Access denied. You do not have sufficient permissions.';
         header("Location: $redirectPage");
+        exit();
+    }
+}
+
+/**
+ * Require specific page access based on current role
+ * @param string $page The page parameter being accessed
+ */
+function requirePageAccess(string $page) {
+    requireAdmin(); // First ensure user is logged in
+    
+    if (!canAccessPage($page)) {
+        $_SESSION['error_message'] = 'Access denied. You do not have permission to access this page.';
+        
+        // Redirect based on role
+        $userRole = getCurrentUserRole();
+        if ($userRole === 'viewer') {
+            header("Location: admin_panel.php?page=dashboard");
+        } elseif ($userRole === 'hr') {
+            header("Location: admin_panel.php?page=dashboard");
+        } else {
+            header("Location: admin_login.php");
+        }
         exit();
     }
 }
@@ -131,5 +180,14 @@ function canManageDisputes(): bool {
  */
 function canImportData(): bool {
     return isAdminLoggedIn() && (isUserAdmin() || isUserHR());
+}
+
+/**
+ * Check if user can view a specific page (for menu rendering)
+ * @param string $page The page to check
+ * @return bool True if user can view this page in menu
+ */
+function canViewMenuPage(string $page): bool {
+    return canAccessPage($page);
 }
 ?>
