@@ -406,6 +406,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 <head>
     <meta charset="utf-8">
     <title>Generic Course Track — Check Your Training Status</title>
+    <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -794,10 +795,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
     </main>
 
-    <footer class="bg-blue-950 text-gray-300 py-8 mt-auto">
-        <div class="max-w-7xl mx-auto px-6 text-center">
-            <p class="text-sm">© <?= date('Y') ?> <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.</p>
-            <p class="text-xs mt-2 opacity-75">MRO HR Course Track System • Powered by NATNAEL BIZUNEH</p>
+    <!-- FOOTER: stays at bottom, matches original blue-950 with subtle text, compact -->
+    <footer class="bg-blue-950 text-gray-300 py-3 flex-shrink-0">
+        <div class="w-full max-w-7xl mx-auto px-5 text-center">
+            <p class="text-xs">
+                © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
+            </p>
+            <p class="text-[11px] mt-1 opacity-75">
+                MRO Course Track System • Powered by NATNAEL BIZUNEH
+            </p>
         </div>
     </footer>
 
