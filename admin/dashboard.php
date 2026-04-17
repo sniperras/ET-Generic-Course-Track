@@ -11,7 +11,7 @@ requireAdmin();
 $CACHE_TTL = 300;          // seconds
 $TOP_PIE_COUNT = 8;
 $TOP_DEPT_COUNT = 12;
-$DEFAULT_TO_BE_DAYS = 90;
+$DEFAULT_TO_BE_DAYS = 1;
 $DRILL_PAGE_SIZE = 50;
 
 // Courses that never expire (validity forever)
