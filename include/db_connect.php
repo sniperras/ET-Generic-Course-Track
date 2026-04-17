@@ -1,7 +1,7 @@
 <?php
 // db_connect.php - CHANGE ONLY THESE 4 LINES WITH YOUR HOSTING DETAILS
 $host     = 'localhost';                   // ← YOUR DB HOST
-$dbname   = 'if0_40621574_genericcoursetrack';           // ← YOUR DATABASE NAME
+$dbname   = 'genericcoursetrack';           // ← YOUR DATABASE NAME
 $username = 'root';                              // ← YOUR DB USERNAME
 $password = '';                              // ← YOUR DB PASSWORD (from hosting panel)
 
