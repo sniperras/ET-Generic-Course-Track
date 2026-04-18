@@ -14,28 +14,6 @@ error_reporting(E_ALL);
 
 ob_start();
 
-// Define valid table names
-$valid_tables = [
-    'course_records_afhs',
-    'course_records_ecaras',
-    'course_records_esd',
-    'course_records_etops',
-    'course_records_ewis',
-    'course_records_fts',
-    'course_records_hf',
-    'course_records_ip',
-    'course_records_legislation',
-    'course_records_mcm',
-    'course_records_mel',
-    'course_records_moe',
-    'course_records_mpm',
-    'course_records_regulation',
-    'course_records_rsmqsm',
-    'course_records_ettpm',
-    'course_records_smsmgr',
-    'course_records_smsop'
-];
-
 // ============================ SAVE RECORDS ============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
     $emp_id = trim($_POST['emp_id'] ?? '');
@@ -96,7 +74,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
             // Get the table name from courses table
             $stmt = $pdo->prepare("SELECT table_name FROM courses WHERE course_id = ? AND is_active = 1");
             $stmt->execute([$course_id]);
-            $table_name = $stmt->fetchColumn();
+            $table_name = trim($stmt->fetchColumn());
 
             if (!$table_name) {
                 $errors[] = "Course ID $course_id has no table name defined.";
@@ -104,23 +82,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                 continue;
             }
 
-            // Fix typo if present
-            if ($table_name === 'course_records_legistlation') {
-                $table_name = 'course_records_legislation';
-            }
-
-            // Validate table name
-            if (!in_array($table_name, $valid_tables)) {
-                $errors[] = "Invalid table name: $table_name for course ID $course_id";
-                error_log("Invalid table name: $table_name");
-                continue;
-            }
+            // Clean the table name (remove any spaces)
+            $table_name = trim($table_name);
 
             try {
                 // Check if table exists, create if not
                 $table_exists = $pdo->query("SHOW TABLES LIKE '$table_name'")->fetch();
                 if (!$table_exists) {
-                    // SIMPLIFIED TABLE STRUCTURE - Use ID as primary key
+                    // Create table with proper structure
                     $create_sql = "
                         CREATE TABLE `$table_name` (
                             `ID` VARCHAR(50) NOT NULL PRIMARY KEY,
@@ -137,7 +106,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                     error_log("Created table: $table_name");
                 } else {
                     // Check if table has the right structure
-                    // If it has record_id as primary key, we need to handle it differently
                     $check_columns = $pdo->query("SHOW COLUMNS FROM `$table_name`")->fetchAll(PDO::FETCH_COLUMN);
 
                     if (in_array('record_id', $check_columns)) {
@@ -338,11 +306,11 @@ if ($emp_id) {
     $employee = $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
-// Get all active courses
+// Get all active courses dynamically from the database
 $courses = $pdo->query("
     SELECT course_id, course_code, course_name, validity_months, table_name
     FROM courses 
-    WHERE is_active = 1 AND table_name IS NOT NULL
+    WHERE is_active = 1 AND table_name IS NOT NULL AND table_name != ''
     ORDER BY course_code ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -476,10 +444,7 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                 <tbody class="divide-y divide-gray-200">
                                     <?php foreach ($courses as $course):
                                         $course_id   = (int)$course['course_id'];
-                                        $raw_table   = $course['table_name'];
-                                        $table_name  = ($raw_table === 'course_records_legistlation')
-                                            ? 'course_records_legislation'
-                                            : $raw_table;
+                                        $table_name  = trim($course['table_name']);
 
                                         $input_date     = '';
                                         $current_status = 'NA';
@@ -487,7 +452,7 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
 
                                         // Try to read existing record
                                         try {
-                                            if (preg_match('/^course_records_[a-zA-Z0-9_]+$/', $table_name)) {
+                                            if ($table_name && preg_match('/^course_records_[a-zA-Z0-9_]+$/', $table_name)) {
                                                 $sql = "SELECT CompletedDate, Status FROM `$table_name` WHERE ID = ? LIMIT 1";
                                                 $stmt = $pdo->prepare($sql);
                                                 $stmt->execute([$emp_id]);
@@ -519,6 +484,7 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                                 <?php if ($course['validity_months'] > 0): ?>
                                                     <div class="text-xs text-gray-500 mt-1">Valid for <?= $course['validity_months'] ?> months</div>
                                                 <?php endif; ?>
+                                                <div class="text-xs text-gray-400 mt-1 font-mono">Table: <?= htmlspecialchars($table_name) ?></div>
                                             </td>
                                             <td class="px-6 py-5 text-center">
                                                 <input type="date"
@@ -569,23 +535,25 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
             const form = document.getElementById('recordsForm');
 
             // Form submission loading indicator
-            form.addEventListener('submit', function(e) {
-                // Show loading indicator
-                const submitBtn = form.querySelector('button[type="submit"]');
-                const originalText = submitBtn.innerHTML;
-                submitBtn.innerHTML = '<span class="flex items-center justify-center"><svg class="animate-spin h-5 w-5 mr-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving... Please wait...</span>';
-                submitBtn.disabled = true;
-                submitBtn.className = 'bg-gray-500 text-white font-bold text-xl px-20 py-5 rounded-xl shadow-xl opacity-75 cursor-not-allowed';
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    // Show loading indicator
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    const originalText = submitBtn.innerHTML;
+                    submitBtn.innerHTML = '<span class="flex items-center justify-center"><svg class="animate-spin h-5 w-5 mr-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving... Please wait.</span>';
+                    submitBtn.disabled = true;
+                    submitBtn.className = 'bg-gray-500 text-white font-bold text-xl px-20 py-5 rounded-xl shadow-xl opacity-75 cursor-not-allowed';
 
-                // Re-enable after 10 seconds just in case
-                setTimeout(() => {
-                    submitBtn.innerHTML = originalText;
-                    submitBtn.disabled = false;
-                    submitBtn.className = 'bg-green-700 hover:bg-green-800 text-white font-bold text-xl px-20 py-5 rounded-xl shadow-xl transition transform hover:scale-105';
-                }, 10000);
+                    // Re-enable after 10 seconds just in case
+                    setTimeout(() => {
+                        submitBtn.innerHTML = originalText;
+                        submitBtn.disabled = false;
+                        submitBtn.className = 'bg-green-700 hover:bg-green-800 text-white font-bold text-xl px-20 py-5 rounded-xl shadow-xl transition transform hover:scale-105';
+                    }, 10000);
 
-                return true;
-            });
+                    return true;
+                });
+            }
         });
     </script>
 </body>
