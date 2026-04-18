@@ -209,7 +209,7 @@ ob_end_flush();
     // Function to generate default HR comment with employee name
     function getDefaultHRComment(employeeName) {
       const firstName = getFirstName(employeeName);
-      return `Dear ${firstName},\n\n\n\nWith regards,`;
+      return `Dear ${firstName}\n\n\n\nWith regards`;
     }
 
     function bindViewButtons() {
@@ -422,7 +422,7 @@ ob_end_flush();
               if (currentFilter === 'open' && newStatus === 'closed') {
                 currentRow.remove();
                 if (!document.querySelector('tbody tr')) {
-                  document.querySelector('tbody').innerHTML = '<tr><td colspan="8" class="p-12 text-center text-gray-500 text-lg">No disputes found.<?td><?e';
+                  document.querySelector('tbody').innerHTML = '<tr><td colspan="8" class="p-12 text-center text-gray-500 text-lg">No disputes found.</td></tr>';
                 }
               }
             }
