@@ -157,10 +157,10 @@ $pdf->SetFont('helvetica', '', 9);
 $info = [
     'Employee ID' => $employee['employee_id'],
     'Full Name' => $employee['full_name'],
-    'Position' => $employee['position'] ?: 'Not Assigned',
-    'Department' => $employee['department'] ?: 'Not Assigned',
-    'Fleet Assignment' => $employee['fleet'] ?: 'Not Assigned',
-    'Cost Center' => $employee['cost_center'] ?: 'Not Assigned',
+    'Position' => $employee['position'] ?: '',
+    'Department' => $employee['department'] ?: '',
+    'Fleet Assignment' => $employee['fleet'] ?: '',
+    'Cost Center' => $employee['cost_center'] ?: '',
 ];
 
 $half = ceil(count($info) / 2);
