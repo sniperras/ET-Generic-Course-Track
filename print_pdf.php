@@ -8,6 +8,18 @@ if (ob_get_level()) {
     ob_end_clean();
 }
 
+// Constants
+const FOREVER_THRESHOLD = 999999;
+
+// Function to format validity display
+function formatValidity($months): string
+{
+    if ($months >= FOREVER_THRESHOLD) {
+        return 'Forever';
+    }
+    return $months . 'm';
+}
+
 // Check if emp_id is provided
 if (!isset($_GET['emp_id']) || empty($_GET['emp_id'])) {
     die('No employee selected. Please go back and select an employee.');
@@ -32,7 +44,7 @@ $courses = $pdo->query("
     ORDER BY course_code ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-// Never expire courses
+// Never expire courses (also include courses with validity >= FOREVER_THRESHOLD)
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 
 // Build records
@@ -42,7 +54,7 @@ foreach ($courses as $course) {
     $course_code = $course['course_code'];
     $course_name = $course['course_name'];
     $validity_months = (int)$course['validity_months'];
-    $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES);
+    $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
 
     $completed = null;
     $status = 'Not Taken';
@@ -87,7 +99,8 @@ foreach ($courses as $course) {
         'name' => $course_name,
         'taken_date' => ($completed && $completed !== '0000-00-00') ? $completed : '—',
         'status' => $status,
-        'validity' => $validity_months
+        'validity' => $validity_months,
+        'validity_display' => formatValidity($validity_months)
     ];
 }
 
@@ -242,7 +255,9 @@ foreach ($records as $record) {
     $pdf->Cell($w[4], $row_height, $record['status'], 1, 0, 'C');
     $pdf->SetTextColor(0);
     $pdf->SetFont('helvetica', '', 8);
-    $pdf->Cell($w[5], $row_height, $record['validity'] . 'm', 1, 0, 'C');
+
+    // Use the formatted validity display
+    $pdf->Cell($w[5], $row_height, $record['validity_display'], 1, 0, 'C');
     $pdf->Ln();
 }
 
