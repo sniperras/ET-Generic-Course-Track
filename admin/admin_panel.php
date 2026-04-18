@@ -106,6 +106,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 <body class="bg-gray-100 min-h-screen font-inter">
   <header class="bg-blue-900 text-white shadow-lg">
     <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+      <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
       <h1 class="text-2xl font-bold">Generic Course Track</h1>
       <div class="flex items-center gap-6">
         <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Admin') ?></strong></span>
