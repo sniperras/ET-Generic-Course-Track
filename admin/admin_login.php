@@ -53,9 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <nav class="bg-blue-900 text-white shadow flex-shrink-0">
         <div class="max-w-7xl mx-auto px-6 py-3 flex justify-between items-center">
             <a href="../index.php" class="flex items-center space-x-3 text-white hover:text-blue-200 transition">
-                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                </svg>
+                <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
                 <span class="font-bold text-lg">Generic Course Track</span>
             </a>
             <a href="../index.php" class="text-white hover:text-blue-200 font-medium px-3 py-1.5 rounded-lg transition text-sm">
@@ -68,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="flex-1 flex items-center justify-center px-4 py-4 overflow-hidden">
         <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
             <div class="text-center mb-5">
-                <h1 class="text-2xl font-bold text-gray-800">Admin Login</h1>
+                <h1 class="text-2xl font-bold text-gray-800">HR Login</h1>
                 <p class="text-gray-600 mt-1 text-sm">Generic Course Track HR Panel</p>
             </div>
 

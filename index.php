@@ -531,13 +531,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     <header class="bg-blue-900 text-white shadow">
         <div class="max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
             <div class="flex items-center gap-3">
-                <img src="./img/logo.png" alt="Logo" class="h-[4.5rem] w-auto" onerror="this.style.display='none'">
+                <img src="./img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
                 <div>
                     <h1 class="text-2xl font-bold">Generic Course Track</h1>
                     <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
                 </div>
             </div>
-            <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">Admin Login</a>
+            <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
         </div>
     </header>
 
