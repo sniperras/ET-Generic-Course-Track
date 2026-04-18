@@ -8,17 +8,15 @@ require_once __DIR__ . '/../include/auth.php';
 requireAdmin();
 
 // ---------------- CONFIG ----------------
-$CACHE_TTL = 300;          // seconds (5 minutes)
+$CACHE_TTL = 300;
 $TOP_PIE_COUNT = 8;
 $TOP_DEPT_COUNT = 12;
 $DEFAULT_TO_BE_DAYS = 1;
 $DRILL_PAGE_SIZE = 50;
 
-// Courses that never expire (validity forever)
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 const FOREVER_THRESHOLD = 999999;
 
-// ---------------- Helpers ----------------
 function safe_table($t)
 {
     return preg_match('/^course_records_[a-zA-Z0-9_]+$/', $t);
@@ -32,14 +30,11 @@ if (isset($_GET['to_be_days'])) {
     $to_be_days = max(0, (int)$_POST['to_be_days']);
     $_SESSION['to_be_days'] = $to_be_days;
 } else {
-    $to_be_days = $_SESSION['to_be_days'] ?? $DEFAULT_TO_BE_DAYS;
+    $to_be_days = $_SESSION['to_be_days'] ?? 1;
 }
 
 // ---------------- Read selected cost centers ----------------
 $selected_cost_centers = [];
-$cc_search_input = '';
-
-// Check if clear filter is requested
 if (isset($_GET['clear_filter']) && $_GET['clear_filter'] == 1) {
     $_SESSION['selected_cost_centers'] = [];
     $selected_cost_centers = [];
@@ -56,9 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_filter'])) {
         $_SESSION['selected_cost_centers'] = [];
     }
     if (isset($_POST['cc_search']) && trim($_POST['cc_search']) !== '') {
-        $cc_search_input = trim($_POST['cc_search']);
-        $search_ccs = array_map('trim', explode(',', $cc_search_input));
-        $search_ccs = array_filter($search_ccs);
+        $search_ccs = array_map('trim', explode(',', trim($_POST['cc_search'])));
         foreach ($search_ccs as $cc) {
             if (!in_array($cc, $selected_cost_centers)) {
                 $selected_cost_centers[] = $cc;
@@ -67,10 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_filter'])) {
         $_SESSION['selected_cost_centers'] = $selected_cost_centers;
     }
     $redirect_url = "admin_panel.php?page=dashboard&to_be_days=" . $to_be_days;
-    if (!empty($selected_cost_centers)) {
-        foreach ($selected_cost_centers as $cc) {
-            $redirect_url .= '&selected_cc[]=' . urlencode($cc);
-        }
+    foreach ($selected_cost_centers as $cc) {
+        $redirect_url .= '&selected_cc[]=' . urlencode($cc);
     }
     header("Location: " . $redirect_url);
     exit;
@@ -81,8 +72,248 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_filter'])) {
     $selected_cost_centers = $_SESSION['selected_cost_centers'];
 }
 
+// ==================== ALL EXPORT HANDLERS - MUST BE BEFORE ANY HTML ====================
+
+// ---------------- CSV export handler for courses ----------------
+if (isset($_GET['export_course'])) {
+    // Clear all output buffers
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+
+    $course_id = (int)($_GET['export_course'] ?? 0);
+    $type = $_GET['etype'] ?? 'initial';
+    $to_be = max(0, (int)($_GET['to_be_days'] ?? $to_be_days));
+
+    $selected_ccs = isset($_GET['selected_cc']) && is_array($_GET['selected_cc']) ? $_GET['selected_cc'] : $selected_cost_centers;
+
+    $stmt = $pdo->prepare("SELECT course_code, course_name, COALESCE(validity_months,24) AS validity_months, table_name FROM courses WHERE course_id=? LIMIT 1");
+    $stmt->execute([$course_id]);
+    $course = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$course || !safe_table($course['table_name'])) {
+        header('HTTP/1.1 400 Bad Request');
+        echo "Invalid course";
+        exit;
+    }
+
+    if (!empty($selected_ccs)) {
+        $placeholders = implode(',', array_fill(0, count($selected_ccs), '?'));
+        $emp_stmt = $pdo->prepare("SELECT employee_id, full_name, position, department, cost_center FROM employees WHERE is_active = 1 AND cost_center IN ($placeholders)");
+        $emp_stmt->execute($selected_ccs);
+        $employees = $emp_stmt->fetchAll(PDO::FETCH_ASSOC);
+    } else {
+        $employees = $pdo->query("SELECT employee_id, full_name, position, department, cost_center FROM employees WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    $employee_ids = array_column($employees, 'employee_id');
+    $employee_details = [];
+    foreach ($employees as $emp) {
+        $employee_details[$emp['employee_id']] = $emp;
+    }
+
+    if (empty($employee_ids)) {
+        header('HTTP/1.1 400 Bad Request');
+        echo "No employees found";
+        exit;
+    }
+
+    $tbl = $course['table_name'];
+    $valid = (int)$course['validity_months'];
+    $course_code = $course['course_code'];
+    $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
+
+    $placeholders = implode(',', array_fill(0, count($employee_ids), '?'));
+    $stmt = $pdo->prepare("SELECT ID, CompletedDate, Status FROM `{$tbl}` WHERE ID IN ($placeholders)");
+    $stmt->execute($employee_ids);
+    $completed_data = [];
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $completed_data[$row['ID']] = [
+            'completed_date' => $row['CompletedDate'],
+            'status' => $row['Status']
+        ];
+    }
+
+    $export_data = [];
+    foreach ($employee_ids as $emp_id) {
+        $emp = $employee_details[$emp_id];
+        $status_type = '';
+        $completion_date = null;
+
+        if (!isset($completed_data[$emp_id])) {
+            $status_type = 'initial';
+        } else {
+            $completion_date = $completed_data[$emp_id]['completed_date'];
+            if (!$completion_date || $completion_date == '0000-00-00') {
+                $status_type = 'initial';
+            } elseif ($never_expire) {
+                continue;
+            } else {
+                $completion_dt = DateTime::createFromFormat('Y-m-d', $completion_date);
+                if (!$completion_dt) $completion_dt = date_create($completion_date);
+                if ($completion_dt) {
+                    $expiry_dt = clone $completion_dt;
+                    $expiry_dt->modify("+{$valid} months");
+                    $today = new DateTime();
+                    $days_to_expiry = (int)$today->diff($expiry_dt)->days;
+                    if ($expiry_dt < $today) {
+                        $status_type = 'expired';
+                    } elseif ($days_to_expiry <= $to_be) {
+                        $status_type = 'tobe';
+                    } else {
+                        continue;
+                    }
+                } else {
+                    $status_type = 'initial';
+                }
+            }
+        }
+
+        if ($type !== 'all' && $status_type !== $type) continue;
+
+        $export_data[] = [
+            $emp_id,
+            $emp['full_name'],
+            $emp['cost_center'],
+            $emp['position'],
+            $emp['department'],
+            $completion_date ?? '',
+            $completed_data[$emp_id]['status'] ?? ''
+        ];
+    }
+
+    $filename = "{$course['course_code']}_{$type}_" . date('Ymd_His') . ".csv";
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Employee ID', 'Full Name', 'Cost Center', 'Position', 'Department', 'Completed Date', 'Status']);
+    foreach ($export_data as $r) {
+        fputcsv($out, $r);
+    }
+    fclose($out);
+    exit;
+}
+
+// ---------------- CSV Export for Cost Center (Employee List) ----------------
+if (isset($_GET['export_dept_csv'])) {
+    while (ob_get_level()) ob_end_clean();
+
+    $cost_center = $_GET['export_dept_csv'] ?? '';
+    $type = $_GET['etype'] ?? 'all';
+    $to_be = max(0, (int)($_GET['to_be_days'] ?? $to_be_days));
+
+    $employees = $pdo->prepare("SELECT employee_id, full_name, position, department FROM employees WHERE is_active = 1 AND cost_center = ?");
+    $employees->execute([$cost_center]);
+    $employees_list = $employees->fetchAll(PDO::FETCH_ASSOC);
+    $employee_ids = array_column($employees_list, 'employee_id');
+    $employee_details = [];
+    foreach ($employees_list as $emp) {
+        $employee_details[$emp['employee_id']] = $emp;
+    }
+
+    if (empty($employee_ids)) {
+        header('HTTP/1.1 400 Bad Request');
+        echo "No employees found for this cost center";
+        exit;
+    }
+
+    $courses = $pdo->query("SELECT course_id, course_code, course_name, COALESCE(validity_months,24) AS validity_months, table_name
+                            FROM courses WHERE is_active=1 AND table_name IS NOT NULL ORDER BY course_code")->fetchAll(PDO::FETCH_ASSOC);
+
+    $export_data = [];
+
+    foreach ($courses as $c) {
+        $tbl = $c['table_name'];
+        $valid = (int)$c['validity_months'];
+        $course_code = $c['course_code'];
+        $course_name = $c['course_name'];
+        $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
+
+        if (!safe_table($tbl)) continue;
+
+        $placeholders = implode(',', array_fill(0, count($employee_ids), '?'));
+        $stmt = $pdo->prepare("SELECT ID, CompletedDate, Status FROM `{$tbl}` WHERE ID IN ($placeholders)");
+        $stmt->execute($employee_ids);
+        $completed_data = [];
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $completed_data[$row['ID']] = [
+                'completed_date' => $row['CompletedDate'],
+                'status' => $row['Status']
+            ];
+        }
+
+        foreach ($employee_ids as $emp_id) {
+            $emp = $employee_details[$emp_id];
+            $status_type = '';
+            $completion_date = null;
+
+            if (!isset($completed_data[$emp_id])) {
+                $status_type = 'initial';
+            } else {
+                $completion_date = $completed_data[$emp_id]['completed_date'];
+                if (!$completion_date || $completion_date == '0000-00-00') {
+                    $status_type = 'initial';
+                } elseif ($never_expire) {
+                    continue;
+                } else {
+                    $completion_dt = DateTime::createFromFormat('Y-m-d', $completion_date);
+                    if (!$completion_dt) $completion_dt = date_create($completion_date);
+                    if ($completion_dt) {
+                        $expiry_dt = clone $completion_dt;
+                        $expiry_dt->modify("+{$valid} months");
+                        $today = new DateTime();
+                        $days_to_expiry = (int)$today->diff($expiry_dt)->days;
+                        if ($expiry_dt < $today) {
+                            $status_type = 'expired';
+                        } elseif ($days_to_expiry <= $to_be) {
+                            $status_type = 'tobe';
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        $status_type = 'initial';
+                    }
+                }
+            }
+
+            if ($type !== 'all' && $status_type !== $type) continue;
+
+            $export_data[] = [
+                $course_code,
+                $course_name,
+                $emp_id,
+                $emp['full_name'],
+                $emp['position'],
+                $emp['department'],
+                $completion_date ?? 'N/A',
+                ucfirst($status_type),
+                $cost_center
+            ];
+        }
+    }
+
+    usort($export_data, function ($a, $b) {
+        $cmp = strcmp($a[0], $b[0]);
+        if ($cmp == 0) return strcmp($a[3], $b[3]);
+        return $cmp;
+    });
+
+    $type_label = ($type === 'all') ? 'all_employees' : $type;
+    $filename = "cost_center_{$cost_center}_{$type_label}_report_" . date('Ymd_His') . ".csv";
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Course Code', 'Course Name', 'Employee ID', 'Employee Name', 'Position', 'Department', 'Completed Date', 'Status', 'Cost Center']);
+    foreach ($export_data as $row) {
+        fputcsv($out, $row);
+    }
+    fclose($out);
+    exit;
+}
+
 // ---------------- CSV Export for Selected Cost Centers (Combined) ----------------
 if (isset($_GET['export_combined_csv'])) {
+    while (ob_get_level()) ob_end_clean();
+
     $type = $_GET['etype'] ?? 'all';
     $to_be = max(0, (int)($_GET['to_be_days'] ?? $to_be_days));
     $selected_ccs = isset($_GET['selected_cc']) && is_array($_GET['selected_cc']) ? $_GET['selected_cc'] : $selected_cost_centers;
@@ -147,16 +378,12 @@ if (isset($_GET['export_combined_csv'])) {
                     continue;
                 } else {
                     $completion_dt = DateTime::createFromFormat('Y-m-d', $completion_date);
-                    if (!$completion_dt) {
-                        $completion_dt = date_create($completion_date);
-                    }
-
+                    if (!$completion_dt) $completion_dt = date_create($completion_date);
                     if ($completion_dt) {
                         $expiry_dt = clone $completion_dt;
                         $expiry_dt->modify("+{$valid} months");
                         $today = new DateTime();
                         $days_to_expiry = (int)$today->diff($expiry_dt)->days;
-
                         if ($expiry_dt < $today) {
                             $status_type = 'expired';
                         } elseif ($days_to_expiry <= $to_be) {
@@ -170,29 +397,25 @@ if (isset($_GET['export_combined_csv'])) {
                 }
             }
 
-            if ($type !== 'all' && $status_type !== $type) {
-                continue;
-            }
+            if ($type !== 'all' && $status_type !== $type) continue;
 
             $export_data[] = [
-                'course_code' => $course_code,
-                'course_name' => $course_name,
-                'employee_id' => $emp_id,
-                'employee_name' => $emp['full_name'],
-                'position' => $emp['position'],
-                'department' => $emp['department'],
-                'cost_center' => $emp['cost_center'],
-                'completed_date' => $completion_date ?? 'N/A',
-                'status_type' => ucfirst($status_type)
+                $course_code,
+                $course_name,
+                $emp_id,
+                $emp['full_name'],
+                $emp['position'],
+                $emp['department'],
+                $emp['cost_center'],
+                $completion_date ?? 'N/A',
+                ucfirst($status_type)
             ];
         }
     }
 
     usort($export_data, function ($a, $b) {
-        $cmp = strcmp($a['course_code'], $b['course_code']);
-        if ($cmp == 0) {
-            return strcmp($a['employee_name'], $b['employee_name']);
-        }
+        $cmp = strcmp($a[0], $b[0]);
+        if ($cmp == 0) return strcmp($a[3], $b[3]);
         return $cmp;
     });
 
@@ -201,135 +424,10 @@ if (isset($_GET['export_combined_csv'])) {
     $filename = "combined_{$cc_label}_{$type_label}_report_" . date('Ymd_His') . ".csv";
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
-    if (ob_get_level()) ob_end_clean();
     $out = fopen('php://output', 'w');
     fputcsv($out, ['Course Code', 'Course Name', 'Employee ID', 'Employee Name', 'Position', 'Department', 'Cost Center', 'Completed Date', 'Status']);
     foreach ($export_data as $row) {
-        fputcsv($out, [$row['course_code'], $row['course_name'], $row['employee_id'], $row['employee_name'], $row['position'], $row['department'], $row['cost_center'], $row['completed_date'], $row['status_type']]);
-    }
-    fclose($out);
-    exit;
-}
-
-// ---------------- CSV Export for Cost Center (Employee List) ----------------
-if (isset($_GET['export_dept_csv'])) {
-    $cost_center = $_GET['export_dept_csv'] ?? '';
-    $type = $_GET['etype'] ?? 'all';
-    $to_be = max(0, (int)($_GET['to_be_days'] ?? $to_be_days));
-
-    $employees = $pdo->prepare("SELECT employee_id, full_name, position, department FROM employees WHERE is_active = 1 AND cost_center = ?");
-    $employees->execute([$cost_center]);
-    $employees_list = $employees->fetchAll(PDO::FETCH_ASSOC);
-    $employee_ids = array_column($employees_list, 'employee_id');
-    $employee_details = [];
-    foreach ($employees_list as $emp) {
-        $employee_details[$emp['employee_id']] = $emp;
-    }
-
-    if (empty($employee_ids)) {
-        header('HTTP/1.1 400 Bad Request');
-        echo "No employees found for this cost center";
-        exit;
-    }
-
-    $courses = $pdo->query("SELECT course_id, course_code, course_name, COALESCE(validity_months,24) AS validity_months, table_name
-                            FROM courses WHERE is_active=1 AND table_name IS NOT NULL ORDER BY course_code")->fetchAll(PDO::FETCH_ASSOC);
-
-    $export_data = [];
-
-    foreach ($courses as $c) {
-        $tbl = $c['table_name'];
-        $valid = (int)$c['validity_months'];
-        $course_code = $c['course_code'];
-        $course_name = $c['course_name'];
-        $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
-
-        if (!safe_table($tbl)) continue;
-
-        $placeholders = implode(',', array_fill(0, count($employee_ids), '?'));
-        $stmt = $pdo->prepare("SELECT ID, CompletedDate, Status FROM `{$tbl}` WHERE ID IN ($placeholders)");
-        $stmt->execute($employee_ids);
-        $completed_data = [];
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            $completed_data[$row['ID']] = [
-                'completed_date' => $row['CompletedDate'],
-                'status' => $row['Status']
-            ];
-        }
-
-        foreach ($employee_ids as $emp_id) {
-            $emp = $employee_details[$emp_id];
-            $status_type = '';
-            $completion_date = null;
-
-            if (!isset($completed_data[$emp_id])) {
-                $status_type = 'initial';
-            } else {
-                $completion_date = $completed_data[$emp_id]['completed_date'];
-                if (!$completion_date || $completion_date == '0000-00-00') {
-                    $status_type = 'initial';
-                } elseif ($never_expire) {
-                    continue;
-                } else {
-                    $completion_dt = DateTime::createFromFormat('Y-m-d', $completion_date);
-                    if (!$completion_dt) {
-                        $completion_dt = date_create($completion_date);
-                    }
-
-                    if ($completion_dt) {
-                        $expiry_dt = clone $completion_dt;
-                        $expiry_dt->modify("+{$valid} months");
-                        $today = new DateTime();
-                        $days_to_expiry = (int)$today->diff($expiry_dt)->days;
-
-                        if ($expiry_dt < $today) {
-                            $status_type = 'expired';
-                        } elseif ($days_to_expiry <= $to_be) {
-                            $status_type = 'tobe';
-                        } else {
-                            continue;
-                        }
-                    } else {
-                        $status_type = 'initial';
-                    }
-                }
-            }
-
-            if ($type !== 'all' && $status_type !== $type) {
-                continue;
-            }
-
-            $export_data[] = [
-                'course_code' => $course_code,
-                'course_name' => $course_name,
-                'employee_id' => $emp_id,
-                'employee_name' => $emp['full_name'],
-                'position' => $emp['position'],
-                'department' => $emp['department'],
-                'completed_date' => $completion_date ?? 'N/A',
-                'status_type' => ucfirst($status_type),
-                'cost_center' => $cost_center
-            ];
-        }
-    }
-
-    usort($export_data, function ($a, $b) {
-        $cmp = strcmp($a['course_code'], $b['course_code']);
-        if ($cmp == 0) {
-            return strcmp($a['employee_name'], $b['employee_name']);
-        }
-        return $cmp;
-    });
-
-    $type_label = ($type === 'all') ? 'all_employees' : $type;
-    $filename = "cost_center_{$cost_center}_{$type_label}_report_" . date('Ymd_His') . ".csv";
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-    if (ob_get_level()) ob_end_clean();
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['Course Code', 'Course Name', 'Employee ID', 'Employee Name', 'Position', 'Department', 'Completed Date', 'Status', 'Cost Center']);
-    foreach ($export_data as $row) {
-        fputcsv($out, [$row['course_code'], $row['course_name'], $row['employee_id'], $row['employee_name'], $row['position'], $row['department'], $row['completed_date'], $row['status_type'], $row['cost_center']]);
+        fputcsv($out, $row);
     }
     fclose($out);
     exit;
@@ -418,63 +516,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'course_employees') {
     exit;
 }
 
-// ---------------- CSV export handler for courses ----------------
-if (isset($_GET['export_course'])) {
-    $course_id = (int)($_GET['export_course'] ?? 0);
-    $type = $_GET['etype'] ?? 'initial';
-    $to_be = max(0, (int)($_GET['to_be_days'] ?? $to_be_days));
-
-    $stmt = $pdo->prepare("SELECT course_code, course_name, COALESCE(validity_months,24) AS validity_months, table_name FROM courses WHERE course_id=? LIMIT 1");
-    $stmt->execute([$course_id]);
-    $course = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$course || !safe_table($course['table_name'])) {
-        header('HTTP/1.1 400 Bad Request');
-        echo "Invalid course";
-        exit;
-    }
-
-    $tbl = $course['table_name'];
-    $valid = (int)$course['validity_months'];
-    $course_code = $course['course_code'];
-    $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
-
-    if ($type === 'initial') {
-        $sql = "SELECT e.employee_id, e.full_name, e.cost_center, e.position, e.department, t.CompletedDate, t.Status
-                FROM employees e LEFT JOIN `{$tbl}` t ON e.employee_id=t.ID
-                WHERE e.is_active=1 AND (t.ID IS NULL OR t.CompletedDate IS NULL OR t.CompletedDate='') ORDER BY e.cost_center, e.employee_id";
-    } elseif ($type === 'expired') {
-        if ($never_expire) {
-            $sql = "SELECT e.employee_id, e.full_name, e.cost_center, e.position, e.department, NULL AS CompletedDate, NULL AS Status FROM employees e WHERE 1=0";
-        } else {
-            $sql = "SELECT t.ID AS employee_id, e.full_name, e.cost_center, e.position, e.department, t.CompletedDate, t.Status
-                    FROM `{$tbl}` t JOIN employees e ON e.employee_id=t.ID
-                    WHERE e.is_active=1 AND t.CompletedDate IS NOT NULL AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) < CURDATE()
-                    ORDER BY e.cost_center, t.ID";
-        }
-    } else {
-        if ($never_expire) {
-            $sql = "SELECT e.employee_id, e.full_name, e.cost_center, e.position, e.department, NULL AS CompletedDate, NULL AS Status FROM employees e WHERE 1=0";
-        } else {
-            $sql = "SELECT t.ID AS employee_id, e.full_name, e.cost_center, e.position, e.department, t.CompletedDate, t.Status
-                    FROM `{$tbl}` t JOIN employees e ON e.employee_id=t.ID
-                    WHERE e.is_active=1 AND t.CompletedDate IS NOT NULL
-                      AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL {$to_be} DAY)
-                    ORDER BY e.cost_center, t.ID";
-        }
-    }
-
-    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
-
-    $filename = "{$course['course_code']}_{$type}_" . date('Ymd_His') . ".csv";
-    header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-    if (ob_get_level()) ob_end_clean();
-    $out = fopen('php://output', 'w');
-    fputcsv($out, ['employee_id', 'full_name', 'cost_center', 'position', 'department', 'CompletedDate', 'Status']);
-    foreach ($rows as $r) fputcsv($out, [$r['employee_id'], $r['full_name'], $r['cost_center'], $r['position'], $r['department'], $r['CompletedDate'] ?? '', $r['Status'] ?? '']);
-    fclose($out);
-    exit;
-}
+// ==================== END OF EXPORT HANDLERS ====================
 
 // ---------------- Get all cost centers for filter ----------------
 $all_cost_centers = $pdo->query("SELECT DISTINCT cost_center FROM employees WHERE is_active = 1 AND cost_center IS NOT NULL AND cost_center != '' ORDER BY cost_center")->fetchAll(PDO::FETCH_COLUMN);
@@ -1048,7 +1090,9 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
 
         <!-- Courses Table -->
         <div class="mt-6 bg-white p-4 rounded-xl shadow">
-            <h3 class="font-bold mb-3">Courses Table <?= !empty($selected_cost_centers) ? '(Filtered by selected cost centers)' : '' ?></h3>
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-bold">Courses Table <?= !empty($selected_cost_centers) ? '(Filtered by selected cost centers)' : '' ?></h3>
+            </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse">
                     <thead class="bg-gray-100">
@@ -1182,6 +1226,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                                         <th class="p-2 text-center border">Expired</th>
                                         <th class="p-2 text-center border">To be</th>
                                         <th class="p-2 text-center border">GAP</th>
+                                        <th class="p-2 text-center border">Export</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1190,6 +1235,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                                     foreach ($combined_course_stats as $cid => $cs) {
                                         if ($cs['total_gap'] > 0 || $cs['initial'] > 0) {
                                             $combined_courses_agg[] = [
+                                                'course_id' => $cid,
                                                 'course_code' => $cs['course_code'],
                                                 'course_name' => $cs['course_name'],
                                                 'initial' => $cs['initial'],
@@ -1210,6 +1256,13 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                                             <td class="p-2 text-center border <?= $c_stat['expired'] > 0 ? 'text-red-600 font-bold' : '' ?>"><?= number_format($c_stat['expired']) ?></td>
                                             <td class="p-2 text-center border <?= $c_stat['tobe'] > 0 ? 'text-yellow-600 font-bold' : '' ?>"><?= number_format($c_stat['tobe']) ?></td>
                                             <td class="p-2 text-center border font-bold <?= $c_stat['gap'] > 0 ? 'text-red-600' : 'text-gray-500' ?>"><?= number_format($c_stat['gap']) ?></td>
+                                            <td class="p-2 text-center border">
+                                                <div class="export-group">
+                                                    <a href="admin_panel.php?page=dashboard&export_course=<?= $c_stat['course_id'] ?>&etype=initial&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-link">Initial</a>
+                                                    <a href="admin_panel.php?page=dashboard&export_course=<?= $c_stat['course_id'] ?>&etype=expired&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-link">Expired</a>
+                                                    <a href="admin_panel.php?page=dashboard&export_course=<?= $c_stat['course_id'] ?>&etype=tobe&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-link">ToBe</a>
+                                                </div>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -1243,7 +1296,6 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             if (icon) icon.classList.toggle('rotated');
         };
 
-        // Search functionality for checkboxes
         const searchBox = document.getElementById('ccSearchBox');
         const clearSearchBtn = document.getElementById('clearSearchBtn');
         const checkboxItems = document.querySelectorAll('.checkbox-item');
