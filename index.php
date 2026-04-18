@@ -4,9 +4,24 @@ declare(strict_types=1);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/include/db_connect.php';
 
+// Error handling for AJAX - disable error output for JSON responses
+function handleAjaxError($message)
+{
+    if (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['success' => false, 'message' => $message]);
+        exit;
+    }
+}
+
+// Check database connection
+if (!isset($pdo) || !$pdo instanceof PDO) {
+    handleAjaxError("Database connection failed. Please try again later.");
+}
+
 // Config
 const DEFAULT_TO_BE_DAYS = 90;
-const DISPUTE_COOLDOWN_DAYS = 7;
+const DISPUTE_COOLDOWN_DAYS = 2;
 
 // Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
@@ -372,8 +387,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
         $errors_dispute[] = "Please list at least one course.";
     }
 
+    // Cooldown check is now done in the AJAX endpoint before opening modal
+    // So we don't need to check again here (but keep for non-AJAX fallback)
     if (empty($errors_dispute)) {
         try {
+            // Check if training_disputes table exists
+            $table_check = $pdo->query("SHOW TABLES LIKE 'training_disputes'")->fetch();
+            if (!$table_check) {
+                // Create the table if it doesn't exist
+                $create_sql = "
+                    CREATE TABLE `training_disputes` (
+                        `dispute_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        `employee_id` VARCHAR(50) NOT NULL,
+                        `employee_name` VARCHAR(255) NOT NULL,
+                        `courses` TEXT NOT NULL,
+                        `course_dates` TEXT,
+                        `comment` TEXT,
+                        `hr_comment` TEXT,
+                        `status` VARCHAR(50) DEFAULT 'open',
+                        `closed_by` VARCHAR(100),
+                        `created_at` DATETIME NOT NULL,
+                        `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_employee_id (employee_id),
+                        INDEX idx_status (status),
+                        INDEX idx_created_at (created_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                ";
+                $pdo->exec($create_sql);
+            }
+
             $ins = $pdo->prepare("INSERT INTO training_disputes (employee_id, employee_name, courses, course_dates, comment, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', NOW())");
             $ins->execute([
                 $emp_id,
@@ -398,6 +440,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
         }
         exit;
     }
+}
+
+// AJAX endpoint to check cooldown before opening modal
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $emp_id = trim((string)($_POST['employee_id'] ?? ''));
+
+    if (empty($emp_id)) {
+        echo json_encode(['can_proceed' => false, 'message' => 'Employee ID is required.']);
+        exit;
+    }
+
+    try {
+        $cooldown_check = $pdo->prepare("
+            SELECT created_at, status FROM training_disputes 
+            WHERE employee_id = ? 
+            AND created_at > DATE_SUB(NOW(), INTERVAL ? DAY)
+            ORDER BY created_at DESC 
+            LIMIT 1
+        ");
+        $cooldown_check->execute([$emp_id, DISPUTE_COOLDOWN_DAYS]);
+        $recent_dispute = $cooldown_check->fetch(PDO::FETCH_ASSOC);
+
+        if ($recent_dispute) {
+            $cooldown_end = new DateTime($recent_dispute['created_at']);
+            $cooldown_end->modify('+' . DISPUTE_COOLDOWN_DAYS . ' days');
+            $now = new DateTime();
+            $days_remaining = (int)($now->diff($cooldown_end)->format('%a'));
+            $hours_remaining = (int)($now->diff($cooldown_end)->format('%h'));
+
+            if ($days_remaining > 0) {
+                $message = "You have already submitted a dispute on " . date('F j, Y', strtotime($recent_dispute['created_at'])) . ". 
+                Please complete all remaining courses and come back after " . $days_remaining . " day(s) to submit a new dispute.";
+            } elseif ($hours_remaining > 0) {
+                $message = "You have already submitted a dispute recently. 
+                Please complete all remaining courses and come back after " . $hours_remaining . " hour(s) to submit a new dispute.";
+            } else {
+                $message = "You have already submitted a dispute recently. 
+                Please complete all remaining courses and wait " . DISPUTE_COOLDOWN_DAYS . " days before submitting another dispute.";
+            }
+
+            echo json_encode(['can_proceed' => false, 'message' => $message]);
+            exit;
+        }
+
+        echo json_encode(['can_proceed' => true]);
+    } catch (Exception $e) {
+        // Table might not exist yet (first dispute), that's fine - allow proceeding
+        echo json_encode(['can_proceed' => true]);
+    }
+    exit;
 }
 ?>
 <!doctype html>
@@ -628,9 +721,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                     <div class="p-6">
                         <!-- AJAX Messages -->
                         <div id="ajaxMessageContainer">
-                            <?php if ($dispute_ok): ?>
+                            <?php if ($dispute_ok && !isset($_SERVER['HTTP_X_REQUESTED_WITH'])): ?>
                                 <div class="mb-4 p-4 rounded bg-green-100 text-green-800"><?= h($dispute_msg) ?></div>
-                            <?php elseif (!empty($errors_dispute)): ?>
+                            <?php elseif (!empty($errors_dispute) && !isset($_SERVER['HTTP_X_REQUESTED_WITH'])): ?>
                                 <div class="mb-4 p-4 rounded bg-red-100 text-red-800">
                                     <ul class="list-disc pl-5">
                                         <?php foreach ($errors_dispute as $err): ?>
@@ -730,13 +823,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
             <!-- Dispute Modal -->
             <div id="disputeModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 px-4">
-                <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-lg">
+                <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-lg max-h-[90vh] overflow-y-auto">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-xl font-bold">Raise Training Dispute</h3>
                         <button id="closeDisputeBtn" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
                     </div>
 
-                    <form id="disputeForm" method="POST">
+                    <form id="disputeForm" method="POST" action="<?= h($_SERVER['REQUEST_URI']) ?>">
                         <input type="hidden" name="raise_dispute" value="1">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             <div>
@@ -854,6 +947,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 }
             }
 
+            // Check cooldown before opening modal
+            async function checkCooldownAndOpenModal() {
+                if (!EMPLOYEE_ID) {
+                    showAjaxMessage(false, 'Employee ID not found. Please refresh the page.');
+                    return;
+                }
+
+                // Show loading state on button
+                const originalText = openBtn.textContent;
+                openBtn.disabled = true;
+                openBtn.textContent = 'Checking...';
+
+                try {
+                    const formData = new FormData();
+                    formData.append('check_cooldown', '1');
+                    formData.append('employee_id', EMPLOYEE_ID);
+
+                    const response = await fetch(window.location.href, {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    const data = await response.json();
+
+                    if (data.can_proceed) {
+                        // No cooldown - open modal
+                        openModal();
+                    } else {
+                        // Cooldown active - show message in ajaxMessageContainer
+                        showAjaxMessage(false, data.message);
+                    }
+                } catch (error) {
+                    console.error('Cooldown check error:', error);
+                    // If error, allow proceeding (or show error message)
+                    showAjaxMessage(false, 'Unable to check dispute status. Please try again later.');
+                } finally {
+                    openBtn.disabled = false;
+                    openBtn.textContent = originalText;
+                }
+            }
+
             function openModal() {
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
@@ -875,7 +1012,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 modal.classList.remove('flex');
             }
 
-            openBtn?.addEventListener('click', openModal);
+            // Use cooldown check when clicking the button
+            openBtn?.addEventListener('click', checkCooldownAndOpenModal);
             closeBtn?.addEventListener('click', closeModal);
             modal?.addEventListener('click', function(e) {
                 if (e.target === modal) closeModal();
@@ -890,7 +1028,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 courseRows.forEach(row => {
                     const courseInput = row.querySelector('input[name^="dispute_course"]');
                     const dateInput = row.querySelector('input[name^="dispute_course_date"]');
-                    if (courseInput) {
+                    if (courseInput && courseInput.value.trim()) {
                         savedFormData.courses.push({
                             name: courseInput.value.trim(),
                             date: dateInput ? dateInput.value.trim() : ''
@@ -969,15 +1107,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 div.className = `mb-4 p-4 rounded ${success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
                 div.textContent = message;
                 ajaxMessageContainer.appendChild(div);
-            }
-
-            function showTemporaryFlash(success, message, durationMs) {
-                ajaxMessageContainer.innerHTML = '';
-                const div = document.createElement('div');
-                div.className = `mb-4 p-4 rounded ${success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
-                div.textContent = message;
-                ajaxMessageContainer.appendChild(div);
-                setTimeout(() => div.remove(), durationMs);
+                // Auto scroll to message
+                div.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center'
+                });
+                // Auto hide after 10 seconds
+                setTimeout(() => {
+                    if (div.parentNode) div.remove();
+                }, 10000);
             }
 
             disputeForm?.addEventListener('submit', function(e) {
@@ -1016,22 +1154,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                     modalErrors.innerHTML = '<div class="mb-4 p-4 rounded bg-orange-100 text-orange-800 border border-orange-300">Please add at least one complete course (name and date).</div>';
                     return;
                 }
+
                 const formData = new FormData(disputeForm);
-                fetch(location.href, {
+                const submitBtn = disputeForm.querySelector('button[type="submit"]');
+                const originalText = submitBtn.textContent;
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+
+                fetch(window.location.href, {
                         method: 'POST',
                         body: formData,
                         headers: {
                             'X-Requested-With': 'XMLHttpRequest'
                         }
                     })
-                    .then(res => res.ok ? res.json() : res.text().then(t => {
-                        throw new Error(t);
-                    }))
+                    .then(res => {
+                        if (!res.ok) {
+                            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                        }
+                        return res.json();
+                    })
                     .then(data => {
                         if (data.success) {
                             showAjaxMessage(true, data.message || 'Dispute submitted successfully!');
                             closeModal();
-                            clearAllCourseRowsAndComment();
+                            setTimeout(() => {
+                                clearAllCourseRowsAndComment();
+                                const msgDiv = ajaxMessageContainer.querySelector('.bg-green-100');
+                                if (msgDiv) setTimeout(() => msgDiv.remove(), 5000);
+                            }, 500);
                         } else {
                             const errs = data.errors || [data.message || 'Submission failed'];
                             const ul = document.createElement('ul');
@@ -1045,7 +1196,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                         }
                     })
                     .catch(err => {
+                        console.error('Fetch error:', err);
                         modalErrors.innerHTML = `<div class="mb-4 p-3 rounded bg-red-50 text-red-800">Network or server error: ${err.message}</div>`;
+                    })
+                    .finally(() => {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
                     });
             });
         })();
