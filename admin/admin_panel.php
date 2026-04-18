@@ -92,7 +92,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Admin Panel - GenericCourseTrack</title>
+  <title>Generic Course Track</title>
   <link rel="icon" type="image/png" href="../img/ethiopian_logo.ico">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -106,7 +106,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 <body class="bg-gray-100 min-h-screen font-inter">
   <header class="bg-blue-900 text-white shadow-lg">
     <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-      <h1 class="text-2xl font-bold">Admin Panel</h1>
+      <h1 class="text-2xl font-bold">Generic Course Track</h1>
       <div class="flex items-center gap-6">
         <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Admin') ?></strong></span>
         <span class="text-sm bg-blue-700 px-3 py-1 rounded-full"><?= strtoupper($current_user_role) ?></span>
