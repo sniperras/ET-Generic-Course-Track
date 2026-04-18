@@ -22,6 +22,7 @@ if (!isset($pdo) || !$pdo instanceof PDO) {
 // Config
 const DEFAULT_TO_BE_DAYS = 90;
 const DISPUTE_COOLDOWN_DAYS = 2;
+const FOREVER_THRESHOLD = 999999; // Any validity months >= this value = forever
 
 // Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
@@ -80,6 +81,14 @@ function parse_human_date(?string $raw): ?string
 function h($v): string
 {
     return htmlspecialchars((string)$v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function formatValidity($months): string
+{
+    if ($months >= FOREVER_THRESHOLD) {
+        return 'Forever';
+    }
+    return $months . ' months';
 }
 
 function badge_class_by_gap(string $gap): string
@@ -199,7 +208,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                 $course_code = $c['course_code'];
                 $course_name = $c['course_name'];
                 $validity_months = (int)$c['validity_months'];
-                $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES);
+                $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
 
                 $row = [
                     'course_code' => $course_code,
@@ -387,8 +396,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
         $errors_dispute[] = "Please list at least one course.";
     }
 
-    // Cooldown check is now done in the AJAX endpoint before opening modal
-    // So we don't need to check again here (but keep for non-AJAX fallback)
     if (empty($errors_dispute)) {
         try {
             // Check if training_disputes table exists
@@ -507,6 +514,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
         body {
             font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
         }
+
+        /* Limit date picker to max today */
+        input[type="date"] {
+            max-width: 160px;
+        }
+
+        input[type="date"]:invalid {
+            color: #999;
+        }
     </style>
 </head>
 
@@ -514,9 +530,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
     <header class="bg-blue-900 text-white shadow">
         <div class="max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
-            <div>
-                <h1 class="text-2xl font-bold">Generic Course Track</h1>
-                <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
+            <div class="flex items-center gap-3">
+                <img src="./img/logo.png" alt="Logo" class="h-[4.5rem] w-auto" onerror="this.style.display='none'">
+                <div>
+                    <h1 class="text-2xl font-bold">Generic Course Track</h1>
+                    <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
+                </div>
             </div>
             <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">Admin Login</a>
         </div>
@@ -787,7 +806,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                                 </span>
                                             </td>
                                             <td class="p-3 text-center text-sm">
-                                                <?= $validity_months ?> months
+                                                <?= formatValidity($validity_months) ?>
                                             </td>
                                             <td class="p-3 text-center text-sm text-gray-700">
                                                 <?php
@@ -844,7 +863,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
                         <div class="mb-6">
                             <div class="flex items-center justify-between mb-3">
-                                <h4 class="font-semibold text-gray-700">Courses</h4>
+                                <h4 class="font-semibold text-gray-700">Fill in the name of the course you took and the date of each course. <br>only fill in the course that has a problem.</h4>
                                 <button type="button" id="clearAllBtn" class="text-sm text-red-600 hover:text-red-800">Clear All</button>
                             </div>
 
@@ -917,6 +936,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             let courseRowCounter = 0;
             const EMPLOYEE_ID = '<?= h($employee['employee_id'] ?? '') ?>';
             const STORAGE_KEY = `dispute_form_data_${EMPLOYEE_ID}`;
+
+            // Get today's date in YYYY-MM-DD format for max date restriction
+            const today = new Date().toISOString().split('T')[0];
 
             function getSavedFormData() {
                 try {
@@ -1061,6 +1083,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 dateInput.name = `dispute_course_date[]`;
                 dateInput.className = 'w-40 px-3 py-2 border rounded';
                 dateInput.value = courseDate;
+                // Set max date to today (cannot select future dates)
+                dateInput.max = today;
                 rowDiv.appendChild(removeBtn);
                 rowDiv.appendChild(courseInput);
                 rowDiv.appendChild(dateInput);
