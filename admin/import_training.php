@@ -20,12 +20,11 @@ requireAdmin();
 // ----------------------
 $course_table_map = [
     'course_records_afhs' => ['AFHSRC'],
-    'course_records_ecaras' => ['ECARASR', 'EASA'],
+    'course_records_ecaras' => ['ECARASR', 'EASA', 'ECARAS'],
     'course_records_esd' => ['ESD'],
     'course_records_etops' => ['ETOPS'],
     'course_records_ewis' => ['EWIS', 'EWISR'],
     'course_records_fts' => ['FTSR', 'FTS'],
-    'course_records_hf' => ['HFAMP', 'HFR', 'HFTICNCSO'],
     'course_records_ip' => ['ACI'],
     'course_records_legislation' => ['AVL', 'Avlrc'],
     'course_records_mcm' => ['MCM', 'MCMR'],
@@ -36,7 +35,13 @@ $course_table_map = [
     'course_records_rsmqsm' => ['RSM QCM', 'RSM/QCM LMT'],
     'course_records_ettpm' => ['ETTPM'],
     'course_records_smsmgr' => ['SMSSM', 'STFMAS', 'SMSEM'],
-    'course_records_smsop' => ['SMSOP', 'STFMOP']
+    'course_records_smsop' => ['SMSOP'],
+    'course_records_smsmro' => ['STFMOP'],
+    'course_records_rcat' => ['COM'],
+    'course_records_dgr' => ['DG', 'DGR Handling in a Warehouse', 'DGRFAM'],
+    'course_records_mnx' => ['MNTX'],
+    'course_records_hf' => ['HFTRCECS', 'HFTICNCSO'],
+    'course_records_hfmp' => ['HFAMP', 'HFR']
 ];
 
 // Reverse mapping for quick lookup
@@ -141,7 +146,7 @@ function get_table_for_course($course): ?string
 function needs_special_date_handling($course): bool
 {
     $course_upper = strtoupper(trim($course));
-    return in_array($course_upper, ['EASA', 'HFTICNCSO']);
+    return in_array($course_upper, ['EASA', 'HFTICNCSO', 'HFTRCECS', 'STFMOP', 'STFMAS']);
 }
 
 function update_or_insert_record($pdo, $table, $employee_id, $full_name, $cost_center, $completion_date, $course_name)
