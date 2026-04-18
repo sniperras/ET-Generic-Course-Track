@@ -484,7 +484,7 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                                 <?php if ($course['validity_months'] > 0): ?>
                                                     <div class="text-xs text-gray-500 mt-1">Valid for <?= $course['validity_months'] ?> months</div>
                                                 <?php endif; ?>
-                                                <div class="text-xs text-gray-400 mt-1 font-mono">Table: <?= htmlspecialchars($table_name) ?></div>
+                                                <!-- <div class="text-xs text-gray-400 mt-1 font-mono">Table: <?= htmlspecialchars($table_name) ?></div> -->
                                             </td>
                                             <td class="px-6 py-5 text-center">
                                                 <input type="date"
