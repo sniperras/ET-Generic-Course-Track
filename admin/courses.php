@@ -245,7 +245,7 @@ function getRecordCount($pdo, $table_name)
         <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">Validity (months)</label>
             <input type="number" name="validity_months" value="<?= $editCourse['validity_months'] ?? '24' ?>"
-                min="1" max="360" required class="w-full px-5 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                min="1" max="999999" required class="w-full px-5 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
         </div>
 
         <div class="md:col-span-3 flex gap-4">
