@@ -34,7 +34,7 @@ $course_table_map = [
     'course_records_mpm' => ['MPMR', 'MPMI'],
     'course_records_regulation' => ['FAARR', 'FAAI'],
     'course_records_rsmqsm' => ['RSM QCM', 'RSM/QCM LMT'],
-    'course_records_rstpm' => ['RSTPM'],
+    'course_records_ettpm' => ['ETTPM'],
     'course_records_smsmgr' => ['SMSSM', 'STFMAS', 'SMSEM'],
     'course_records_smsop' => ['SMSOP', 'STFMOP']
 ];

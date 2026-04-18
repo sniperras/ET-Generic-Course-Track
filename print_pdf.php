@@ -33,7 +33,7 @@ $courses = $pdo->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // Never expire courses
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'RSTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 
 // Build records
 $records = [];

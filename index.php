@@ -9,7 +9,7 @@ const DEFAULT_TO_BE_DAYS = 90;
 const DISPUTE_COOLDOWN_DAYS = 7;
 
 // Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'RSTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 
 /* --------- Helpers --------- */
 function safe_table(string $t): bool

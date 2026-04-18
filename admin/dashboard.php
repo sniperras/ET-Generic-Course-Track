@@ -15,7 +15,7 @@ $DEFAULT_TO_BE_DAYS = 1;
 $DRILL_PAGE_SIZE = 50;
 
 // Courses that never expire (validity forever)
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'RSTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 
 // ---------------- Helpers ----------------
 function cache_get_path($key)
