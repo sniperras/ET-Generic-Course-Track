@@ -1,0 +1,86 @@
+[2026-04-25 16:57:35] ======================================================================
+[2026-04-25 16:57:35] COMBINED AUTOMATION - ET LEARNING
+[2026-04-25 16:57:35] ======================================================================
+[2026-04-25 16:57:35] [STEP 1 OF 3] Starting CSV scraper...
+[2026-04-25 16:57:35] Starting: CSVScraper.py
+[2026-04-25 16:57:35] ============================================================
+[2026-04-25 16:58:56]   Logging in...
+[2026-04-25 16:58:56]   Login successful!
+[2026-04-25 16:58:56]   Navigating to report page...
+[2026-04-25 16:58:56]   Current URL: https://learning1.ethiopianairlines.com/myreport/report.php
+[2026-04-25 16:58:56]   Selecting previous month...
+[2026-04-25 16:58:56]   Selecting month: 3 (03)
+[2026-04-25 16:58:56]   Selected month: March
+[2026-04-25 16:58:56]   Form submitted, waiting 15 seconds for data to load...
+[2026-04-25 16:58:56]   Looking for Export CSV button...
+[2026-04-25 16:58:56]   Cleaning download directory...
+[2026-04-25 16:58:56]   CSV download triggered... waiting for file
+[2026-04-25 16:58:56]   Downloaded file detected: C:\xampp\htdocs\coursetrack\ECSV\members.csv
+[2026-04-25 16:58:56]   Found caption: Certified students from: 2026-03-25 To: 2026-04-25 For the course: All
+[2026-04-25 16:58:56]   CSV saved as: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 16:58:56]   CSV successfully downloaded to: C:\xampp\htdocs\coursetrack\ECSV\Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 16:58:56]   Closing browser...
+[2026-04-25 16:59:00] [OK] CSVScraper.py completed successfully!
+[2026-04-25 16:59:00] 
+Waiting 3 seconds before starting FTP upload...
+[2026-04-25 16:59:03] 
+[STEP 2 OF 3] Starting FTP uploader...
+[2026-04-25 16:59:03] Starting: FTPUploader.py
+[2026-04-25 16:59:03] ============================================================
+[2026-04-25 16:59:22]   Connecting to FTP server...
+[2026-04-25 16:59:22]   FTP connection successful!
+[2026-04-25 16:59:22]   Current remote directory: /htdocs/ECSV
+[2026-04-25 16:59:22]   Found latest CSV: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 16:59:22]   Uploading Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv to FTP...
+[2026-04-25 16:59:22]   File uploaded successfully: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 16:59:22]   Upload verified successfully!
+[2026-04-25 16:59:22]   Files in remote directory:
+[2026-04-25 16:59:22]   - .
+[2026-04-25 16:59:22]   - ..
+[2026-04-25 16:59:22]   - Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv (401892 bytes)
+[2026-04-25 16:59:22]   FTP connection closed
+[2026-04-25 16:59:22]   SUCCESS! FTP upload completed.
+[2026-04-25 16:59:22] [OK] FTPUploader.py completed successfully!
+[2026-04-25 16:59:22] 
+Waiting 3 seconds before starting database import...
+[2026-04-25 16:59:25] 
+[STEP 3 OF 3] Starting database import...
+[2026-04-25 16:59:25] Starting: auto_import_to_db.py
+[2026-04-25 16:59:25] ============================================================
+[2026-04-25 17:00:12]   ======================================================================
+[2026-04-25 17:00:12]   AUTO DB IMPORTER - Training Records Import
+[2026-04-25 17:00:12]   Started at: 2026-04-25 16:59:25
+[2026-04-25 17:00:12]   ======================================================================
+[2026-04-25 17:00:12]   [Step 0] Finding latest CSV file...
+[2026-04-25 17:00:12]   [OK] Found CSV file: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 17:00:12]   [Step 1] Setting up headless browser...
+[2026-04-25 17:00:12]   [OK] Headless browser ready
+[2026-04-25 17:00:12]   [Step 2] Logging in...
+[2026-04-25 17:00:12]   Navigating to login page...
+[2026-04-25 17:00:12]   [OK] Login successful!
+[2026-04-25 17:00:12]   [Step 3] Uploading and importing...
+[2026-04-25 17:00:12]   Navigating to import page...
+[2026-04-25 17:00:12]   Uploading CSV file...
+[2026-04-25 17:00:12]   Total records to process: 2,996
+[2026-04-25 17:00:12]   Confirming import...
+[2026-04-25 17:00:12]   [OK] Import completed successfully!
+[2026-04-25 17:00:12]   Records inserted/updated: 0
+[2026-04-25 17:00:12]   Records skipped: 2996
+[2026-04-25 17:00:12]   Records failed: 0
+[2026-04-25 17:00:12]   ======================================================================
+[2026-04-25 17:00:12]   [SUCCESS] IMPORT COMPLETED SUCCESSFULLY!
+[2026-04-25 17:00:12]   ======================================================================
+[2026-04-25 17:00:12]   File imported: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 17:00:12]   Completed at: 2026-04-25 17:00:10
+[2026-04-25 17:00:12]   ======================================================================
+[2026-04-25 17:00:12]   [SUCCESS] CSV successfully imported to database!
+[2026-04-25 17:00:17] [OK] auto_import_to_db.py completed successfully!
+[2026-04-25 17:00:17] 
+======================================================================
+[2026-04-25 17:00:17] [SUCCESS] AUTOMATION COMPLETED SUCCESSFULLY!
+[2026-04-25 17:00:17] ======================================================================
+[2026-04-25 17:00:17] [OK] CSV file scraped from ET Learning website
+[2026-04-25 17:00:17] [OK] CSV file uploaded to FTP server
+[2026-04-25 17:00:17] [OK] CSV file imported to database
+[2026-04-25 17:00:17] [OK] Log file saved to: logs\automation_20260425_165735.log
+[2026-04-25 17:00:17] ======================================================================
