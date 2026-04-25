@@ -156,10 +156,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['check_dispute_status'])
     $dispute_id_input = trim((string)($_GET['dispute_id'] ?? ''));
 
     if ($dispute_id_input === '') {
-        $dispute_error = "Please enter a Dispute ID.";
+        $dispute_error = "Please enter a Complaint ID.";
     } else {
         if (!is_numeric($dispute_id_input)) {
-            $dispute_error = "Dispute ID must be a number.";
+            $dispute_error = "Complaint ID must be a number.";
         } else {
             $dispute_id = (int)$dispute_id_input;
             $stmt = $pdo->prepare("SELECT * FROM training_disputes WHERE dispute_id = ? LIMIT 1");
@@ -167,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['check_dispute_status'])
             $dispute_status_result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$dispute_status_result) {
-                $dispute_error = "Dispute ID not found.";
+                $dispute_error = "Complaint ID not found.";
             }
         }
     }
@@ -432,7 +432,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
                 $comment
             ]);
             $dispute_ok = true;
-            $dispute_msg = "Your dispute has been submitted. Dispute ID: " . $pdo->lastInsertId();
+            $dispute_msg = "Your complaint has been submitted. Complaint ID: " . $pdo->lastInsertId() . ", Save or write down the Complaint ID to check the complaint status later.";
         } catch (Exception $e) {
             $errors_dispute[] = "Database error: " . $e->getMessage();
         }
@@ -478,14 +478,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             $hours_remaining = (int)($now->diff($cooldown_end)->format('%h'));
 
             if ($days_remaining > 0) {
-                $message = "You have already submitted a dispute on " . date('F j, Y', strtotime($recent_dispute['created_at'])) . ". 
-                Please complete all remaining courses and come back after " . $days_remaining . " day(s) to submit a new dispute.";
+                $message = "You have already submitted a complaint on " . date('F j, Y', strtotime($recent_dispute['created_at'])) . ". 
+                Please complete all remaining courses and come back after " . $days_remaining . " day(s) to submit a new complaint.";
             } elseif ($hours_remaining > 0) {
-                $message = "You have already submitted a dispute recently. 
-                Please complete all remaining courses and come back after " . $hours_remaining . " hour(s) to submit a new dispute.";
+                $message = "You have already submitted a complaint recently. 
+                Please complete all remaining courses and come back after " . $hours_remaining . " hour(s) to submit a new complaint.";
             } else {
-                $message = "You have already submitted a dispute recently. 
-                Please complete all remaining courses and wait " . DISPUTE_COOLDOWN_DAYS . " days before submitting another dispute.";
+                $message = "You have already submitted a complaint recently. 
+                Please complete all remaining courses and wait " . DISPUTE_COOLDOWN_DAYS . " days before submitting another complaint.";
             }
 
             echo json_encode(['can_proceed' => false, 'message' => $message]);
@@ -494,7 +494,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
         echo json_encode(['can_proceed' => true]);
     } catch (Exception $e) {
-        // Table might not exist yet (first dispute), that's fine - allow proceeding
+        // Table might not exist yet (first complaint), that's fine - allow proceeding
         echo json_encode(['can_proceed' => true]);
     }
     exit;
@@ -558,22 +558,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             </div>
 
             <div class="bg-white rounded-2xl shadow-lg p-8">
-                <h2 class="text-2xl font-bold mb-4">Check Dispute Status</h2>
+                <h2 class="text-2xl font-bold mb-4">Check Complaint Status</h2>
                 <form method="GET" class="max-w-full">
-                    <label class="block text-sm font-medium text-gray-600 mb-1">Dispute ID</label>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Complaint ID</label>
                     <div class="flex gap-3">
                         <input name="dispute_id" required value="<?= h($dispute_id_input) ?>"
                             class="flex-1 px-4 py-3 border rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-200"
                             placeholder="e.g. 1001">
                         <input type="hidden" name="check_dispute_status" value="1">
-                        <button type="submit" class="bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-green-800">Check Dispute</button>
+                        <button type="submit" class="bg-green-700 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-green-800">Check Complaint</button>
                     </div>
-                    <p class="text-sm text-gray-500 mt-2">Enter the Dispute ID you received when submitting your dispute</p>
+                    <p class="text-sm text-gray-500 mt-2">Enter the Complaint ID you received when submitting your complaint</p>
                 </form>
             </div>
         </div>
 
-        <!-- Dispute Status Result -->
+        <!-- Complaint Status Result -->
         <?php if ($dispute_error !== ''): ?>
             <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6">
                 <div class="font-semibold">Error:</div>
@@ -586,8 +586,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 <div class="bg-gradient-to-r from-green-800 to-green-900 text-white p-6">
                     <div class="flex items-center justify-between">
                         <div>
-                            <div class="text-sm">Dispute Status</div>
-                            <div class="text-2xl font-bold">Dispute ID: <?= h($dispute_status_result['dispute_id']) ?></div>
+                            <div class="text-sm">Complaint Status</div>
+                            <div class="text-2xl font-bold">Complaint ID: <?= h($dispute_status_result['dispute_id']) ?></div>
                             <div class="text-sm opacity-90 mt-1">
                                 Submitted by: <?= h($dispute_status_result['employee_name']) ?>
                                 (ID: <?= h($dispute_status_result['employee_id']) ?>)
@@ -605,10 +605,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 <div class="p-6">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                         <div>
-                            <h3 class="font-bold text-gray-700 mb-2">Dispute Details</h3>
+                            <h3 class="font-bold text-gray-700 mb-2">Complaint Details</h3>
                             <div class="space-y-3">
                                 <div>
-                                    <div class="text-sm text-gray-500">Courses Disputed:</div>
+                                    <div class="text-sm text-gray-500">Courses Complaint:</div>
                                     <?php
                                     $courses_list = json_decode($dispute_status_result['courses'] ?? '[]', true);
                                     $course_dates = json_decode($dispute_status_result['course_dates'] ?? '[]', true);
@@ -674,7 +674,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                     <div class="p-4 bg-yellow-50 border border-yellow-200 rounded">
                                         <p class="text-yellow-800">
                                             <strong>Status: <?= h(ucfirst($dispute_status_result['status'])) ?></strong><br>
-                                            Your dispute is currently being reviewed by the HR team. Please check back later for updates.
+                                            Your complaint is currently being reviewed by the HR team. Please check back later for updates.
                                         </p>
                                     </div>
 
@@ -690,7 +690,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     </div>
 
                     <div class="border-t pt-4">
-                        <h3 class="font-bold text-gray-700 mb-3">Dispute Timeline</h3>
+                        <h3 class="font-bold text-gray-700 mb-3">Complaint Timeline</h3>
                         <div class="space-y-2">
                             <div class="flex items-center">
                                 <div class="w-3 h-3 bg-blue-500 rounded-full mr-3"></div>
@@ -741,7 +741,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                         <!-- AJAX Messages -->
                         <div id="ajaxMessageContainer">
                             <?php if ($dispute_ok && !isset($_SERVER['HTTP_X_REQUESTED_WITH'])): ?>
-                                <div class="mb-4 p-4 rounded bg-green-100 text-green-800"><?= h($dispute_msg) ?></div>
+                                <div class="mb-4 p-4 rounded bg-green-100 text-green-800 auto-dismiss-message"><?= h($dispute_msg) ?></div>
                             <?php elseif (!empty($errors_dispute) && !isset($_SERVER['HTTP_X_REQUESTED_WITH'])): ?>
                                 <div class="mb-4 p-4 rounded bg-red-100 text-red-800">
                                     <ul class="list-disc pl-5">
@@ -753,11 +753,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                             <?php endif; ?>
                         </div>
 
-                        <!-- Dispute Button and Last Import Date -->
+                        <!-- Complaint Button and Last Import Date -->
                         <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
                             <div class="flex gap-3">
                                 <button id="openDisputeBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">
-                                    Raise Dispute about Training
+                                    Raise Complaint about Training
                                 </button>
                                 <button onclick="window.open('print_pdf.php?emp_id=<?= urlencode((string)$employee['employee_id']) ?>&print=true', '_blank');"
                                     class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-semibold inline-flex items-center gap-2">
@@ -766,10 +766,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                             </div>
 
                             <?php if ($last_import_date): ?>
+                                <?php
+                                $dt = new DateTime($last_import_date);
+                                $dt->setTimezone(new DateTimeZone('Africa/Nairobi')); // East Africa Time (GMT+3)
+                                ?>
                                 <div class="text-sm text-gray-500 bg-gray-100 px-4 py-2 rounded-lg">
-                                    📅 Last data update: <?= date('F j, Y \a\t g:i A', strtotime($last_import_date)) ?>
+                                    📅 Last data update: <?= $dt->format('F j, Y \a\t g:i A T') ?>
                                 </div>
                             <?php endif; ?>
+
                         </div>
 
                         <!-- Courses Table -->
@@ -840,11 +845,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 </div>
             </div>
 
-            <!-- Dispute Modal -->
+            <!-- Complaint Modal -->
             <div id="disputeModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 px-4">
                 <div class="bg-white rounded-xl max-w-4xl w-full p-6 shadow-lg max-h-[90vh] overflow-y-auto">
                     <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-xl font-bold">Raise Training Dispute</h3>
+                        <h3 class="text-xl font-bold">Raise Training Complaint</h3>
                         <button id="closeDisputeBtn" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
                     </div>
 
@@ -890,9 +895,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                         <div id="modalErrors" class="mt-4"></div>
 
                         <div class="mt-6 flex items-center justify-between">
-                            <div class="text-sm text-gray-600">We will send your dispute to the MRO HR record officer for review.</div>
+                            <div class="text-sm text-gray-600">We will send your complaint to the MRO HR record officer for review.</div>
                             <div class="flex gap-3">
-                                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold">Submit Dispute</button>
+                                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold">Submit Complaint</button>
                             </div>
                         </div>
                     </form>
@@ -1006,7 +1011,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 } catch (error) {
                     console.error('Cooldown check error:', error);
                     // If error, allow proceeding (or show error message)
-                    showAjaxMessage(false, 'Unable to check dispute status. Please try again later.');
+                    showAjaxMessage(false, 'Unable to check complaint status. Please try again later.');
                 } finally {
                     openBtn.disabled = false;
                     openBtn.textContent = originalText;
@@ -1136,10 +1141,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     behavior: 'smooth',
                     block: 'center'
                 });
-                // Auto hide after 10 seconds
+                // Auto hide after 20 seconds
                 setTimeout(() => {
                     if (div.parentNode) div.remove();
-                }, 10000);
+                }, 20000);
             }
 
             disputeForm?.addEventListener('submit', function(e) {
@@ -1200,12 +1205,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     })
                     .then(data => {
                         if (data.success) {
-                            showAjaxMessage(true, data.message || 'Dispute submitted successfully!');
+                            showAjaxMessage(true, data.message || 'Complaint submitted successfully!');
                             closeModal();
                             setTimeout(() => {
                                 clearAllCourseRowsAndComment();
                                 const msgDiv = ajaxMessageContainer.querySelector('.bg-green-100');
-                                if (msgDiv) setTimeout(() => msgDiv.remove(), 5000);
+                                // if (msgDiv) setTimeout(() => msgDiv.remove(), 5000);
                             }, 500);
                         } else {
                             const errs = data.errors || [data.message || 'Submission failed'];
@@ -1227,6 +1232,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                         submitBtn.disabled = false;
                         submitBtn.textContent = originalText;
                     });
+            });
+
+            // Auto-dismiss non-AJAX messages after 20 seconds
+            document.querySelectorAll('.auto-dismiss-message').forEach(function(message) {
+                setTimeout(function() {
+                    if (message && message.parentNode) {
+                        message.style.transition = 'opacity 0.5s ease';
+                        message.style.opacity = '0';
+                        setTimeout(function() {
+                            if (message && message.parentNode) message.remove();
+                        }, 500);
+                    }
+                }, 20000);
             });
         })();
     </script>
