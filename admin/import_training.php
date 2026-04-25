@@ -19,7 +19,7 @@ requireAdmin();
 // Course to Table Mapping
 // ----------------------
 $course_table_map = [
-    'course_records_afhs' => ['AFHSRC'],
+    'course_records_fuel' => ['AFHSRC'],
     'course_records_ecaras' => ['ECARASR', 'EASA', 'ECARAS'],
     'course_records_esd' => ['ESD'],
     'course_records_etops' => ['ETOPS'],
@@ -333,8 +333,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 error_log("CSV Header: " . implode(', ', $header));
 
-                if (count($header) < 5) {
-                    $_SESSION['import_message'] = ['type' => 'error', 'text' => 'Invalid CSV format. Need at least 5 columns.'];
+                // Check for minimum columns (ID, Name, Cost Center, Course, Certificate, Date Issued)
+                // Certificate column will be ignored
+                if (count($header) < 6) {
+                    $_SESSION['import_message'] = ['type' => 'error', 'text' => 'Invalid CSV format. Need at least 6 columns: ID Number, Name, Cost Center, Course, Certificate, Date Issued'];
                     fclose($handle);
                     header("Location: admin_panel.php?page=import_training");
                     exit;
@@ -353,11 +355,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         continue;
                     }
 
+                    // Map columns according to new CSV structure:
+                    // Column 0: ID Number
+                    // Column 1: Name
+                    // Column 2: Cost Center
+                    // Column 3: Course
+                    // Column 4: Certificate (IGNORED - will be skipped)
+                    // Column 5: Date Issued
+
                     $id_number = $data[0];
                     $name = $data[1];
                     $cost_center = $data[2];
                     $course = $data[3];
-                    $date_issued = $data[4];
+
+                    // Ignore the Certificate column (index 4) - we don't use it
+                    $certificate = isset($data[4]) ? $data[4] : '';
+
+                    // Date Issued is now at index 5 (was previously index 4)
+                    $date_issued = isset($data[5]) ? $data[5] : '';
+
+                    // Log that certificate column was ignored (for debugging)
+                    if (!empty($certificate) && $certificate !== 'Certificate') {
+                        error_log("Row $row_num: Certificate column '{$certificate}' ignored as requested");
+                    }
 
                     if (empty($id_number)) {
                         $all_skipped[] = "Row $row_num: Missing ID Number";
@@ -377,12 +397,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         continue;
                     }
 
-                    // Parse date
+                    // Parse date (now from column 5/6)
                     $parsed_date = parse_date($date_issued);
 
-                    // For special courses that need date from column 6
-                    if (needs_special_date_handling($course) && isset($data[5])) {
-                        $parsed_date = parse_date($data[5]);
+                    // For special courses that need date from column 6 (which is now column 7 in new structure)
+                    if (needs_special_date_handling($course) && isset($data[6])) {
+                        $parsed_date = parse_date($data[6]);
                     }
 
                     // Prepare record
@@ -393,6 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'course' => $course,
                         'taken_date' => $parsed_date,
                         'taken_raw' => $date_issued,
+                        'certificate_ignored' => $certificate, // Store for logging but not used
                         'row' => $row_num
                     ];
 
@@ -622,8 +643,10 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
 
     <div class="container mx-auto px-4 py-12 max-w-7xl">
         <h2 class="text-3xl font-bold mb-4 text-center text-gray-800">Import Training Records (CSV)</h2>
-        <p class="text-center text-gray-600 mb-8">Upload CSV with columns: <strong>ID Number, Name, Cost Center, Course, Date Issued</strong><br>
-            Records will be automatically routed to appropriate tables based on the Course column.</p>
+        <p class="text-center text-gray-600 mb-8">Upload CSV with columns: <strong>ID Number, Name, Cost Center, Course, Certificate, Date Issued</strong><br>
+            <span class="text-orange-600 font-semibold">Note: The "Certificate" column will be automatically ignored during import.</span><br>
+            Records will be automatically routed to appropriate tables based on the Course column.
+        </p>
 
         <?php if ($message): ?>
             <div class="mb-8 p-6 rounded-xl shadow-lg <?= $message['type'] === 'success' ? 'bg-green-50 border-l-8 border-green-600 text-green-800' : 'bg-red-50 border-l-8 border-red-600 text-red-800' ?>">
@@ -644,6 +667,7 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
                 }
                 ?>
                 <p class="mb-4 text-gray-700">Total records to process: <strong><?= number_format($total_records) ?></strong></p>
+                <p class="mb-4 text-gray-600 text-sm">⚠️ <strong>Certificate column ignored:</strong> The Certificate column has been skipped and will not be imported.</p>
 
                 <?php if (!empty($skipped_rows)): ?>
                     <div class="mb-6 p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
@@ -676,7 +700,8 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
                                         <th class="px-4 py-2 text-left">ID</th>
                                         <th class="px-4 py-2 text-left">Name</th>
                                         <th class="px-4 py-2 text-left">Course</th>
-                                        <th class="px-4 py-2 text-center">Date</th>
+                                        <th class="px-4 py-2 text-center">Date Issued</th>
+                                        <th class="px-4 py-2 text-center">Certificate (Ignored)</th>
                                         <th class="px-4 py-2 text-center">Status</th>
                                     </tr>
                                 </thead>
@@ -695,6 +720,9 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
                                             <td class="px-4 py-2 text-center" title="<?= htmlspecialchars($r['taken_raw'] ?? '') ?>">
                                                 <?= $r['taken_date'] ?? '—' ?>
                                             </td>
+                                            <td class="px-4 py-2 text-center text-gray-400 italic">
+                                                <?= !empty($r['certificate_ignored']) ? '🔸 Ignored' : '—' ?>
+                                            </td>
                                             <td class="px-4 py-2 text-center font-bold <?= $status_class ?>">
                                                 <?= $status ?>
                                             </td>
@@ -702,7 +730,7 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
                                     <?php endforeach; ?>
                                     <?php if (count($records) > 10): ?>
                                         <tr class="bg-gray-100">
-                                            <td colspan="6" class="px-4 py-2 text-center text-gray-500">
+                                            <td colspan="7" class="px-4 py-2 text-center text-gray-500">
                                                 ... and <?= number_format(count($records) - 10) ?> more records
                                             </td>
                                         </tr>
@@ -729,8 +757,9 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
                             class="block w-full text-lg border-2 border-dashed rounded-xl p-12 bg-gray-50 hover:border-blue-600 cursor-pointer">
                         <p class="text-sm text-gray-500 mt-2">
                             <strong>Required columns (in order):</strong><br>
-                            1. ID Number | 2. Name | 3. Cost Center | 4. Course | 5. Date Issued<br>
-                            <strong>Optional column for special courses (EASA, HFTICNCSO):</strong> Column 6 (additional date field)
+                            1. ID Number | 2. Name | 3. Cost Center | 4. Course | 5. Certificate | 6. Date Issued<br>
+                            <span class="text-orange-600 font-semibold">🔸 Note: The "Certificate" column (column 5) will be automatically ignored/removed during processing.</span><br>
+                            <strong>Optional column for special courses (EASA, HFTICNCSO):</strong> Column 7 (additional date field)
                         </p>
                     </div>
 
@@ -743,8 +772,9 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
                         </div>
                         <p class="text-xs text-blue-600 mt-2">
                             ℹ️ <strong>Note:</strong> For MEL/MELIN courses, the latest completion date is kept.<br>
-                            For EASA and HFTICNCSO, date is taken from column 6 if available.<br>
-                            Status is automatically calculated (Current = within 2 years, Expired = after 2 years).
+                            For EASA and HFTICNCSO, date is taken from column 7 if available.<br>
+                            Status is automatically calculated (Current = within 2 years, Expired = after 2 years).<br>
+                            <span class="text-orange-600">🔸 The "Certificate" column is ignored during import.</span>
                         </p>
                     </div>
 
