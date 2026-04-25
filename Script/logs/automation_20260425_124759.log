@@ -1,0 +1,51 @@
+[2026-04-25 12:47:59] ======================================================================
+[2026-04-25 12:47:59] COMBINED AUTOMATION - ET LEARNING
+[2026-04-25 12:47:59] ======================================================================
+[2026-04-25 12:47:59] [STEP 1 OF 2] Starting CSV scraper...
+[2026-04-25 12:47:59] Starting: CSVScraper.py
+[2026-04-25 12:47:59] ============================================================
+[2026-04-25 12:49:20]   Logging in...
+[2026-04-25 12:49:20]   Login successful!
+[2026-04-25 12:49:20]   Navigating to report page...
+[2026-04-25 12:49:20]   Current URL: https://learning1.ethiopianairlines.com/myreport/report.php
+[2026-04-25 12:49:20]   Selecting previous month...
+[2026-04-25 12:49:20]   Selecting month: 3 (03)
+[2026-04-25 12:49:20]   Selected month: March
+[2026-04-25 12:49:20]   Form submitted, waiting 15 seconds for data to load...
+[2026-04-25 12:49:20]   Looking for Export CSV button...
+[2026-04-25 12:49:20]   Cleaning download directory...
+[2026-04-25 12:49:20]   CSV download triggered... waiting for file
+[2026-04-25 12:49:20]   Downloaded file detected: C:\xampp\htdocs\coursetrack\ECSV\members.csv
+[2026-04-25 12:49:20]   Found caption: Certified students from: 2026-03-25 To: 2026-04-25 For the course: All
+[2026-04-25 12:49:20]   CSV saved as: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 12:49:20]   CSV successfully downloaded to: C:\xampp\htdocs\coursetrack\ECSV\Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 12:49:20]   Closing browser...
+[2026-04-25 12:49:20] ✓ CSVScraper.py completed successfully!
+[2026-04-25 12:49:20] 
+Waiting 3 seconds before starting FTP upload...
+[2026-04-25 12:49:23] 
+[STEP 2 OF 2] Starting FTP uploader...
+[2026-04-25 12:49:23] Starting: FTPUploader.py
+[2026-04-25 12:49:23] ============================================================
+[2026-04-25 12:49:31]   Connecting to FTP server...
+[2026-04-25 12:49:31]   FTP connection successful!
+[2026-04-25 12:49:31]   Current remote directory: /htdocs/ECSV
+[2026-04-25 12:49:31]   Found latest CSV: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 12:49:31]   Uploading Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv to FTP...
+[2026-04-25 12:49:31]   File uploaded successfully: Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv
+[2026-04-25 12:49:31]   Upload verified successfully!
+[2026-04-25 12:49:31]   Files in remote directory:
+[2026-04-25 12:49:31]     - .
+[2026-04-25 12:49:31]     - ..
+[2026-04-25 12:49:31]     - Certified_students_from_2026-03-25_to_2026-04-25_for_course_All.csv (401424 bytes)
+[2026-04-25 12:49:31]   FTP connection closed
+[2026-04-25 12:49:31]   SUCCESS! FTP upload completed.
+[2026-04-25 12:49:31] ✓ FTPUploader.py completed successfully!
+[2026-04-25 12:49:31] 
+======================================================================
+[2026-04-25 12:49:31] ✅✅✅ AUTOMATION COMPLETED SUCCESSFULLY! ✅✅✅
+[2026-04-25 12:49:31] ======================================================================
+[2026-04-25 12:49:31] ✓ CSV file scraped from ET Learning website
+[2026-04-25 12:49:31] ✓ CSV file uploaded to FTP server
+[2026-04-25 12:49:31] ✓ Log file saved to: logs\automation_20260425_124759.log
+[2026-04-25 12:49:31] ======================================================================
