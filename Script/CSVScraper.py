@@ -34,7 +34,7 @@ class ETLearningScraper:
         })
         chrome_options.add_argument("--disable-notifications")
         # Uncomment below for headless mode (no GUI)
-        # chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--headless")
         
         self.driver = webdriver.Chrome(options=chrome_options)
         self.driver.maximize_window()
