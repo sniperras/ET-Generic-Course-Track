@@ -41,7 +41,14 @@ $course_table_map = [
     'course_records_dgr' => ['DG', 'DGR Handling in a Warehouse', 'DGRFAM'],
     'course_records_mnx' => ['MNTX'],
     'course_records_hf' => ['HFTRCECS', 'HFTICNCSO'],
-    'course_records_hfmp' => ['HFAMP', 'HFR']
+    'course_records_hfmp' => ['HFAMP', 'HFR'],
+    'course_records_a350src' => ['a350r'],
+    'course_records_b737asrc' => ['B737NG Refresher'],
+    'course_records_b787asrc' => ['B787R'],
+    'course_records_b737ngtomax' => ['B737NG to MAX'],
+    'course_records_b767ascr' => ['B767R'],
+    'course_records_b777rot' => ['B777R'],
+    'course_records_q400asc' => ['Q400']
 ];
 
 // Reverse mapping for quick lookup
