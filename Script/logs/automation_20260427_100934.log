@@ -1,0 +1,93 @@
+[2026-04-27 10:09:34] ======================================================================
+[2026-04-27 10:09:34] COMBINED AUTOMATION - ET LEARNING
+[2026-04-27 10:09:34] Mode: SILENT (Task Scheduler)
+[2026-04-27 10:09:34] ======================================================================
+[2026-04-27 10:09:34] Using pythonw.exe for complete silent execution
+[2026-04-27 10:09:34] [STEP 1 OF 3] Starting CSV scraper...
+[2026-04-27 10:09:34] Starting: CSVScraper.py (using pythonw)
+[2026-04-27 10:09:34] ============================================================
+[2026-04-27 10:09:38]   Logging in...
+[2026-04-27 10:09:38]   Error occurred: Message: stale element reference: stale element not found in the current frame
+[2026-04-27 10:09:38]   (Session info: chrome=147.0.7727.103); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#staleelementreferenceexception
+[2026-04-27 10:09:38]   Stacktrace:
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd05a8e5+14e45]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd05a950+14eb0]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fcdcd6ed]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fcdd5671]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fcdd8795]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fcdd885f]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce27cb0]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce27da7]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce1f5de]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce5002a]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce1aa46]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce7483b]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce190e8]
+[2026-04-27 10:09:38]   chromedriver!(No symbol) [0x7ff7fce19fc3]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd370149+32a6a9]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd36a715+324c75]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd38c012+346572]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd077cb5+32215]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd08087c+3addc]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd0640e4+1e644]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd064296+1e7f6]
+[2026-04-27 10:09:38]   chromedriver!GetHandleVerifier [0x7ff7fd048737+2c97]
+[2026-04-27 10:09:38]   KERNEL32!BaseThreadInitThunk [0x7ffbc641e8d7+17]
+[2026-04-27 10:09:38]   ntdll!RtlUserThreadStart [0x7ffbc7fec3fc+2c]
+[2026-04-27 10:09:38]   Closing browser...
+[2026-04-27 10:09:38]   ERROR: Traceback (most recent call last):
+[2026-04-27 10:09:38]   ERROR: File "C:\xampp\htdocs\coursetrack\Script\CSVScraper.py", line 268, in <module>
+[2026-04-27 10:09:38]   ERROR: scraper.run()
+[2026-04-27 10:09:38]   ERROR: ~~~~~~~~~~~^^
+[2026-04-27 10:09:38]   ERROR: File "C:\xampp\htdocs\coursetrack\Script\CSVScraper.py", line 245, in run
+[2026-04-27 10:09:38]   ERROR: self.login()
+[2026-04-27 10:09:38]   ERROR: ~~~~~~~~~~^^
+[2026-04-27 10:09:38]   ERROR: File "C:\xampp\htdocs\coursetrack\Script\CSVScraper.py", line 57, in login
+[2026-04-27 10:09:38]   ERROR: password_field.send_keys(self.password)
+[2026-04-27 10:09:38]   ERROR: ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+[2026-04-27 10:09:38]   ERROR: File "C:\Users\natnaelbi\AppData\Local\Programs\Python\Python314\Lib\site-packages\selenium\webdriver\remote\webelement.py", line 276, in send_keys
+[2026-04-27 10:09:38]   ERROR: self._execute(
+[2026-04-27 10:09:38]   ERROR: ~~~~~~~~~~~~~^
+[2026-04-27 10:09:38]   ERROR: Command.SEND_KEYS_TO_ELEMENT, {"text": "".join(keys_to_typing(value)), "value": keys_to_typing(value)}
+[2026-04-27 10:09:38]   ERROR: ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[2026-04-27 10:09:38]   ERROR: )
+[2026-04-27 10:09:38]   ERROR: ^
+[2026-04-27 10:09:38]   ERROR: File "C:\Users\natnaelbi\AppData\Local\Programs\Python\Python314\Lib\site-packages\selenium\webdriver\remote\webelement.py", line 508, in _execute
+[2026-04-27 10:09:38]   ERROR: return self._parent.execute(command, params)
+[2026-04-27 10:09:38]   ERROR: ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+[2026-04-27 10:09:38]   ERROR: File "C:\Users\natnaelbi\AppData\Local\Programs\Python\Python314\Lib\site-packages\selenium\webdriver\remote\webdriver.py", line 432, in execute
+[2026-04-27 10:09:38]   ERROR: self.error_handler.check_response(response)
+[2026-04-27 10:09:38]   ERROR: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+[2026-04-27 10:09:38]   ERROR: File "C:\Users\natnaelbi\AppData\Local\Programs\Python\Python314\Lib\site-packages\selenium\webdriver\remote\errorhandler.py", line 232, in check_response
+[2026-04-27 10:09:38]   ERROR: raise exception_class(message, screen, stacktrace)
+[2026-04-27 10:09:38]   ERROR: selenium.common.exceptions.StaleElementReferenceException: Message: stale element reference: stale element not found in the current frame
+[2026-04-27 10:09:38]   ERROR: (Session info: chrome=147.0.7727.103); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#staleelementreferenceexception
+[2026-04-27 10:09:38]   ERROR: Stacktrace:
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd05a8e5+14e45]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd05a950+14eb0]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fcdcd6ed]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fcdd5671]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fcdd8795]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fcdd885f]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce27cb0]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce27da7]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce1f5de]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce5002a]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce1aa46]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce7483b]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce190e8]
+[2026-04-27 10:09:38]   ERROR: chromedriver!(No symbol) [0x7ff7fce19fc3]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd370149+32a6a9]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd36a715+324c75]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd38c012+346572]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd077cb5+32215]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd08087c+3addc]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd0640e4+1e644]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd064296+1e7f6]
+[2026-04-27 10:09:38]   ERROR: chromedriver!GetHandleVerifier [0x7ff7fd048737+2c97]
+[2026-04-27 10:09:38]   ERROR: KERNEL32!BaseThreadInitThunk [0x7ffbc641e8d7+17]
+[2026-04-27 10:09:38]   ERROR: ntdll!RtlUserThreadStart [0x7ffbc7fec3fc+2c]
+[2026-04-27 10:09:38] [FAILED] CSVScraper.py failed with return code: 1
+[2026-04-27 10:09:38] 
+[AUTOMATION FAILED] CSV scraper encountered an error!
+[2026-04-27 10:09:38] Check log file for details: logs\automation_20260427_100934.log
