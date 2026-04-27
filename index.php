@@ -1,6 +1,9 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
-declare(strict_types=1);
+// declare(strict_types=1);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/include/db_connect.php';
 
@@ -27,7 +30,27 @@ const FOREVER_THRESHOLD = 999999; // Any validity months >= this value = forever
 // Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 
-/* --------- Helpers --------- */
+/* --------- Helper Functions --------- */
+function is_always_not_taken_course(string $employee_id, string $course_code): bool
+{
+    // Only apply special handling for this specific employee
+    if ($employee_id !== '36689') {
+        return false;
+    }
+
+    // List of courses that should always show "Not Taken" status for this employee
+    $always_not_taken_courses = [
+        'B737ASRC',
+        'B737NGTOMAX',
+        'B767ASCR',
+        'B777ROT',
+        'B787ASRC',
+        'A350SRC'
+    ];
+
+    return in_array(strtoupper(trim($course_code)), $always_not_taken_courses);
+}
+
 function safe_table(string $t): bool
 {
     return (bool) preg_match('/^course_records_[a-zA-Z0-9_]+$/', trim($t));
@@ -209,6 +232,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                 $course_name = $c['course_name'];
                 $validity_months = (int)$c['validity_months'];
                 $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
+
+                // Get employee ID for special handling
+                $employee_id = $employee['employee_id'];
+
+                // Check if this is employee 36689 with a special course that should always show "Not Taken"
+                $always_not_taken = is_always_not_taken_course($employee_id, $course_code);
+
+                // For employee 36689 with special courses - always show "Not Taken"
+                if ($always_not_taken) {
+                    $row = [
+                        'course_code' => $course_code,
+                        'course_name' => $course_name,
+                        'completed_raw' => null,
+                        'completed' => null,
+                        'status_raw' => null,
+                        'status' => 'Not Taken',
+                        'expiry' => null,
+                        'gap_type' => 'initial',
+                        'validity_months' => $validity_months
+                    ];
+                    $results[] = $row;
+                    continue; // Skip database lookup for these courses
+                }
 
                 $row = [
                     'course_code' => $course_code,
