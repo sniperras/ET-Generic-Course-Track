@@ -869,7 +869,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                                         echo "To be expired within " . DEFAULT_TO_BE_DAYS . " days";
                                                         break;
                                                     case 'initial':
-                                                        echo 'Initial training not taken';
+                                                        echo 'Training not taken';
                                                         break;
                                                     case 'ok':
                                                         echo 'Up to date';
