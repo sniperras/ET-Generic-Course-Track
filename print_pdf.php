@@ -201,7 +201,7 @@ for ($i = 0; $i < $max_rows; $i++) {
         $pdf->SetFont('helvetica', 'B', 9);
         $pdf->Cell(45, 6, $right_keys[$i] . ':', 1, 0, 'L', true);
         $pdf->SetFont('helvetica', '', 9);
-        $pdf->Cell(0, 6, $info_right[$right_keys[$i]], 1, 1, 'L', true);
+        $pdf->Cell(0, 10, $info_right[$right_keys[$i]], 1, 1, 'L', true);
     } else {
         $pdf->Cell(0, 6, '', 1, 1, 'L', true);
     }
