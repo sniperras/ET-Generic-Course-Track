@@ -552,6 +552,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 <head>
     <meta charset="utf-8">
 
+
     <title>Generic Course Track — Check Your Training Status</title>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1021,7 +1022,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
             </p>
             <p class="text-[11px] mt-1 opacity-75">
-                MRO Course Track System • Powered by NATNAEL BIZUNEH
+                MRO Course Track System • Developed by NATNAEL BIZUNEH
             </p>
         </div>
     </footer>
