@@ -1,6 +1,9 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 
-declare(strict_types=1);
+// declare(strict_types=1);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/include/db_connect.php';
 
@@ -27,7 +30,27 @@ const FOREVER_THRESHOLD = 999999; // Any validity months >= this value = forever
 // Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 
-/* --------- Helpers --------- */
+/* --------- Helper Functions --------- */
+function is_always_not_taken_course(string $employee_id, string $course_code): bool
+{
+    // Only apply special handling for this specific employee
+    if ($employee_id !== '36689') {
+        return false;
+    }
+
+    // List of courses that should always show "Not Taken" status for this employee
+    $always_not_taken_courses = [
+        'B737ASRC',
+        'B737NGTOMAX',
+        'B767ASCR',
+        'B777ROT',
+        'B787ASRC',
+        'A350SRC'
+    ];
+
+    return in_array(strtoupper(trim($course_code)), $always_not_taken_courses);
+}
+
 function safe_table(string $t): bool
 {
     return (bool) preg_match('/^course_records_[a-zA-Z0-9_]+$/', trim($t));
@@ -209,6 +232,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                 $course_name = $c['course_name'];
                 $validity_months = (int)$c['validity_months'];
                 $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
+
+                // Get employee ID for special handling
+                $employee_id = $employee['employee_id'];
+
+                // Check if this is employee 36689 with a special course that should always show "Not Taken"
+                $always_not_taken = is_always_not_taken_course($employee_id, $course_code);
+
+                // For employee 36689 with special courses - always show "Not Taken"
+                if ($always_not_taken) {
+                    $row = [
+                        'course_code' => $course_code,
+                        'course_name' => $course_name,
+                        'completed_raw' => null,
+                        'completed' => null,
+                        'status_raw' => null,
+                        'status' => 'Not Taken',
+                        'expiry' => null,
+                        'gap_type' => 'initial',
+                        'validity_months' => $validity_months
+                    ];
+                    $results[] = $row;
+                    continue; // Skip database lookup for these courses
+                }
 
                 $row = [
                     'course_code' => $course_code,
@@ -505,6 +551,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 <head>
     <meta charset="utf-8">
+
     <title>Generic Course Track — Check Your Training Status</title>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -540,7 +587,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
         </div>
     </header>
+    <!-- ════════════════════════════════════════════════════════════════
+         SUB-NAVIGATION BAR
+         To add a new link: copy one <a> block, change href + label.
+         ════════════════════════════════════════════════════════════════ -->
+    <nav class="w-full bg-gradient-to-r from-red-700 via-red-600 to-orange-500 text-white shadow-lg relative">
+        <div class="max-w-6xl mx-auto px-6">
+            <ul class="flex flex-wrap items-center gap-x-1 gap-y-1 py-1.5 text-sm">
 
+                <!-- Useful Links Badge & Blinking/Pointing Arrow -->
+                <li class="flex items-center gap-1.5 px-3 py-1.5 font-bold uppercase tracking-wider text-amber-300">
+                    <span>Useful Links</span>
+                    <span class="relative flex h-3 w-3 items-center justify-center">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-300"></span>
+                    </span>
+                    <span class="animate-bounce font-extrabold text-lg leading-none ml-0.5">👉</span>
+                </li>
+
+                <!-- Deferral (open fault track) -->
+                <li>
+                    <a href="https://deftrack.etairtv.com/live_statics.php"
+                        target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-50 hover:bg-blue-700 hover:text-white transition-colors font-medium">
+                        <span>🛠️</span>
+                        <span>All Fleet ADD FOLLOW UP (Open Fault Track)</span>
+                        <span class="text-blue-300 text-xs">↗</span>
+                    </a>
+                </li>
+
+                <!-- ET Locker Verifier -->
+                <li>
+                    <a href="http://etlocker.infinityfree.me"
+                        target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-50 hover:bg-blue-700 hover:text-white transition-colors font-medium">
+                        <span>🔐</span>
+                        <span>ET Locker Verifier</span>
+                        <span class="text-blue-300 text-xs">↗</span>
+                    </a>
+                </li>
+
+
+
+                <li>
+                    <a href="https://etairtv.com/?mode=lmt"
+                        target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-50 hover:bg-blue-700 hover:text-white transition-colors font-medium">
+                        <span>📺</span>
+                        <span>ET AirTV</span>
+                        <span class="text-blue-300 text-xs">↗</span>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+    </nav>
+    <!-- ════════════════════ END SUB-NAVIGATION ════════════════════ -->
     <main class="max-w-6xl mx-auto px-6 py-10 flex-grow">
         <!-- Dual forms -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -823,7 +925,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                                         echo "To be expired within " . DEFAULT_TO_BE_DAYS . " days";
                                                         break;
                                                     case 'initial':
-                                                        echo 'Initial training not taken';
+                                                        echo 'Training not taken';
                                                         break;
                                                     case 'ok':
                                                         echo 'Up to date';
