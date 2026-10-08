@@ -41,7 +41,7 @@ $course_table_map = [
     'course_records_dgr' => ['DG', 'DGR Handling in a Warehouse', 'DGRFAM'],
     'course_records_mnx' => ['MNTX'],
     'course_records_hf' => ['HFTRCECS', 'HFTICNCSO'],
-    'course_records_hfmp' => ['HFAMP', 'HFR'],
+    'course_records_hfmp' => ['HFAMP', 'HFR', 'HFTRCECS', 'HFTICNCSO'],
     'course_records_a350src' => ['a350r'],
     'course_records_b737asrc' => ['B737NG Refresher'],
     'course_records_b787asrc' => ['B787R'],
@@ -114,17 +114,47 @@ function parse_date(string $input): ?string
     $lower = strtolower($s);
     if (in_array($lower, ['n/a', 'na', '—', '-', 'none'], true)) return null;
 
-    // Remove ordinal indicators (st, nd, rd, th)
-    $s = preg_replace('/(\d+)(st|nd|rd|th)/i', '$1', $s);
+    // Remove ordinal indicators (st, nd, rd, th) - improved regex
+    $s = preg_replace('/(\d+)(?:st|nd|rd|th)/i', '$1', $s);
     $s = preg_replace('/\s+/', ' ', str_replace(',', '', $s));
 
-    $formats = ['j-M-y', 'd-M-y', 'j-M-Y', 'd-M-Y', 'j F Y', 'd F Y', 'M j Y', 'Y F j', 'Y-m-d', 'Y M j', 'F j, Y', 'j F, Y'];
+    // Debug logging
+    error_log("Attempting to parse date: '$s'");
+
+    // Add more date formats to handle "2026 April 20" type formats
+    $formats = [
+        'Y F j',        // 2026 April 20
+        'Y F d',        // 2026 April 20
+        'F j, Y',       // April 20, 2026
+        'j F Y',        // 20 April 2026
+        'j-M-Y',        // 20-Apr-2026
+        'd-M-Y',        // 20-Apr-2026
+        'Y-m-d',        // 2026-04-20
+        'm/d/Y',        // 04/20/2026
+        'd/m/Y',        // 20/04/2026
+        'Y/m/d',        // 2026/04/20
+        'j M Y',        // 20 Apr 2026
+        'M j, Y'        // Apr 20, 2026
+    ];
+
     foreach ($formats as $fmt) {
         $dt = DateTime::createFromFormat('!' . $fmt, $s);
-        if ($dt !== false) return $dt->format('Y-m-d');
+        if ($dt !== false && $dt->format('Y-m-d') > '2000-01-01') {
+            error_log("Successfully parsed as '{$fmt}': " . $dt->format('Y-m-d'));
+            return $dt->format('Y-m-d');
+        }
     }
+
+    // Try strtotime as fallback
     $ts = strtotime($s);
-    return ($ts !== false && $ts !== -1) ? date('Y-m-d', $ts) : null;
+    if ($ts !== false && $ts !== -1) {
+        $result = date('Y-m-d', $ts);
+        error_log("Parsed via strtotime: '$s' -> '$result'");
+        return $result;
+    }
+
+    error_log("Failed to parse date: '$input'");
+    return null;
 }
 
 function calculate_status($completion_date): string
@@ -456,7 +486,8 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
+
     <title>Import Training Records - Auto Route</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
