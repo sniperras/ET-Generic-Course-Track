@@ -89,10 +89,6 @@ try {
     $cc_course_map = [];
 }
 
-/**
- * Returns true if the given cost center is required to take the given course code.
- * If mapping table is empty, returns TRUE for backward compatibility.
- */
 function is_course_required($cc_course_map, $cc, $course_code)
 {
     if (empty($cc_course_map)) return true;
@@ -101,35 +97,47 @@ function is_course_required($cc_course_map, $cc, $course_code)
 }
 
 /**
- * ★ NEW: Position-based eligibility (all rules are SUBSTRING, case-insensitive).
+ * Position eligibility — all rules are SUBSTRING, case-insensitive.
  *
- *  - ETTPM    → position must contain "TEAM LEADER" OR "MGR"
- *  - SMS-MGR  → position must contain "MGR"
- *  - IP       → position must contain "TECHNICIAN III" OR "TECHNICIAN IV" OR "TEAM LEADER"
- *  - others   → no position restriction
+ * POSITIVE (must match at least one):
+ *   - ETTPM    → "TEAM LEADER" OR "MGR"
+ *   - SMS-MGR  → "MGR"
+ *   - IP       → "TECHNICIAN III" OR "TECHNICIAN IV" OR "TEAM LEADER"
+ *
+ * NEGATIVE (must NOT match any):
+ *   - MEL      → must NOT contain "MECHANIC"
+ *   - DGR      → must NOT contain "TEAM LEADER" OR "MGR"
+ *   - RCAT     → must NOT contain "TEAM LEADER" OR "MGR"
  */
 function is_position_eligible($course_code, $position)
 {
     $code = strtoupper(trim((string)$course_code));
     $pos  = strtoupper(trim((string)$position));
 
+    // ── POSITIVE ──
     if ($code === 'ETTPM') {
-        return (strpos($pos, 'TEAM LEADER') !== false) || (strpos($pos, 'MGR') !== false);
+        if (!(strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false)) return false;
     }
     if ($code === 'SMS-MGR') {
-        return strpos($pos, 'MGR') !== false;
+        if (strpos($pos, 'MGR') === false) return false;
     }
     if ($code === 'IP') {
-        return (strpos($pos, 'TECHNICIAN III') !== false)
-            || (strpos($pos, 'TECHNICIAN IV') !== false)
-            || (strpos($pos, 'TEAM LEADER') !== false);
+        if (!(strpos($pos, 'TECHNICIAN III') !== false
+            || strpos($pos, 'TECHNICIAN IV')  !== false
+            || strpos($pos, 'TEAM LEADER')    !== false)) return false;
     }
+
+    // ── NEGATIVE ──
+    if ($code === 'MEL') {
+        if (strpos($pos, 'MECHANIC') !== false) return false;
+    }
+    if ($code === 'DGR' || $code === 'RCAT') {
+        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false) return false;
+    }
+
     return true;
 }
 
-/**
- * Combined eligibility: CC mapping AND position rules must both pass.
- */
 function is_employee_eligible($cc_course_map, $cc, $course_code, $position)
 {
     return is_course_required($cc_course_map, $cc, $course_code)
@@ -137,24 +145,31 @@ function is_employee_eligible($cc_course_map, $cc, $course_code, $position)
 }
 
 /**
- * Build the SQL fragment for position eligibility (used in AJAX drill-down).
- * Returns '' for unrestricted courses.
+ * SQL fragment for AJAX drill-down — mirrors is_position_eligible().
  */
 function position_sql_filter($course_code, $alias = 'e')
 {
     $code = strtoupper(trim((string)$course_code));
     $p = $alias . '.position';
+    $sql = '';
 
+    // Positive
     if ($code === 'ETTPM') {
-        return " AND (UPPER({$p}) LIKE '%TEAM LEADER%' OR UPPER({$p}) LIKE '%MGR%')";
+        $sql .= " AND (UPPER({$p}) LIKE '%TEAM LEADER%' OR UPPER({$p}) LIKE '%MGR%')";
+    } elseif ($code === 'SMS-MGR') {
+        $sql .= " AND UPPER({$p}) LIKE '%MGR%'";
+    } elseif ($code === 'IP') {
+        $sql .= " AND (UPPER({$p}) LIKE '%TECHNICIAN III%' OR UPPER({$p}) LIKE '%TECHNICIAN IV%' OR UPPER({$p}) LIKE '%TEAM LEADER%')";
     }
-    if ($code === 'SMS-MGR') {
-        return " AND UPPER({$p}) LIKE '%MGR%'";
+
+    // Negative
+    if ($code === 'MEL') {
+        $sql .= " AND UPPER({$p}) NOT LIKE '%MECHANIC%'";
+    } elseif ($code === 'DGR' || $code === 'RCAT') {
+        $sql .= " AND UPPER({$p}) NOT LIKE '%TEAM LEADER%' AND UPPER({$p}) NOT LIKE '%MGR%'";
     }
-    if ($code === 'IP') {
-        return " AND (UPPER({$p}) LIKE '%TECHNICIAN III%' OR UPPER({$p}) LIKE '%TECHNICIAN IV%' OR UPPER({$p}) LIKE '%TEAM LEADER%')";
-    }
-    return '';
+
+    return $sql;
 }
 
 // ==================== ALL EXPORT HANDLERS ====================
@@ -218,7 +233,6 @@ if (isset($_GET['export_course'])) {
     $export_data = [];
     foreach ($employee_ids as $emp_id) {
         $emp = $employee_details[$emp_id];
-        // ★ Combined eligibility: CC mapping AND position
         if (!is_employee_eligible($cc_course_map, $emp['cost_center'], $course_code, $emp['position'])) {
             continue;
         }
@@ -331,7 +345,6 @@ if (isset($_GET['export_dept_csv'])) {
 
         foreach ($employee_ids as $emp_id) {
             $emp = $employee_details[$emp_id];
-            // ★ Position gate (CC gate already checked above)
             if (!is_position_eligible($course_code, $emp['position'])) {
                 continue;
             }
@@ -458,7 +471,6 @@ if (isset($_GET['export_combined_csv'])) {
 
         foreach ($employee_ids as $emp_id) {
             $emp = $employee_details[$emp_id];
-            // ★ Combined eligibility
             if (!is_employee_eligible($cc_course_map, $emp['cost_center'], $course_code, $emp['position'])) {
                 continue;
             }
@@ -559,12 +571,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'course_employees') {
         exit;
     }
 
-    // CC mapping EXISTS
     $reqExists = " AND EXISTS (SELECT 1 FROM cc_course_requirements r
                                WHERE r.cost_center = e.cost_center
                                  AND r.course_code = " . $pdo->quote($course_code) . ")";
 
-    // ★ Position SQL filter
     $posFilter = position_sql_filter($course_code, 'e');
 
     try {
@@ -631,7 +641,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'course_employees') {
 $all_cost_centers = $pdo->query("SELECT DISTINCT cost_center FROM employees WHERE is_active = 1 AND cost_center IS NOT NULL AND cost_center != '' ORDER BY cost_center")->fetchAll(PDO::FETCH_COLUMN);
 
 // ---------------- MAIN PAGE: compute aggregated stats (cached) ----------------
-$cache_key = "dashboard_stats_v3_tobed_{$to_be_days}";
+$cache_key = "dashboard_stats_v4_tobed_{$to_be_days}";
 $cache_file = sys_get_temp_dir() . "/gct_dashboard_{$cache_key}.cache";
 
 if ($force_refresh && file_exists($cache_file)) {
@@ -723,7 +733,6 @@ if ($use_cache) {
             $emp_id = $emp['employee_id'];
             $cc = $emp['cost_center'];
 
-            // ★ Combined eligibility: CC mapping AND position
             if (!is_employee_eligible($cc_course_map, $cc, $course_code, $emp['position'])) {
                 continue;
             }
@@ -861,7 +870,6 @@ foreach ($course_stats as $cid => $cs) {
     $combined_total_gap += $combined_course_stats[$cid]['total_gap'];
 }
 
-// Prepare pie chart data
 $course_gaps = [];
 foreach ($combined_course_stats as $k => $v) {
     $course_gaps[$k] = $v['total_gap'];
@@ -894,7 +902,6 @@ $js_pie_values = json_encode($pie_values);
 $js_line_labels = json_encode($months);
 $js_line_values = json_encode($month_counts);
 
-// Prepare combined department chart data
 $combined_dept_data = [];
 $combined_dept_labels = [];
 $combined_dept_gaps = [];
@@ -1475,7 +1482,6 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             }
         });
 
-        // Main Pie Chart
         if (pieLabels.length > 0 && pieValues.length > 0) {
             new Chart(document.getElementById('pieChart').getContext('2d'), {
                 type: 'pie',
@@ -1513,7 +1519,6 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             });
         }
 
-        // Cost Center Pie Chart
         const costCenterLabels = <?= json_encode(array_keys($dept_gaps)) ?>;
         const costCenterValues = <?= json_encode(array_values($dept_gaps)) ?>;
 
@@ -1588,7 +1593,6 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             document.getElementById('costCenterPieChart').parentElement.innerHTML = '<div class="text-center text-gray-500 py-8">No cost center data available</div>';
         }
 
-        // Combined Department Charts
         if (deptChartData.combined && deptChartData.combined.labels.length > 0) {
             const data = deptChartData.combined;
 
@@ -1665,7 +1669,6 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             }
         }
 
-        // Auto-expand combined department section
         const combinedDept = document.getElementById('dept_combined');
         if (combinedDept) {
             combinedDept.classList.add('active');
@@ -1673,7 +1676,6 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             if (icon) icon.classList.add('rotated');
         }
 
-        // Preserve selected cost centers when changing to_be_days
         document.getElementById('toBeForm')?.addEventListener('submit', function(e) {
             const selectedCheckboxes = document.querySelectorAll('input[name="selected_cc[]"]:checked');
             if (selectedCheckboxes.length > 0) {
