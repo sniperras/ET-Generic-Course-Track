@@ -13,7 +13,7 @@ import re
 class ETLearningScraper:
     def __init__(self):
         self.username = "22130"
-        self.password = "0920@0688Ram"
+        self.password = "0920443515@Asm"
         self.login_url = "https://learning1.ethiopianairlines.com/login/index.php"
         self.target_url = "https://learning1.ethiopianairlines.com/mod/url/view.php?id=1153"
         self.report_url = "https://learning1.ethiopianairlines.com/myreport/report.php"

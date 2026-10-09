@@ -5,11 +5,13 @@ import glob
 
 class FTPUploader:
     def __init__(self):
-        self.ftp_host = "ftpupload.net"
+        self.ftp_host = "ftp.etairtv.com"
         self.ftp_port = 21
-        self.ftp_username = "if0_40621574"
-        self.ftp_password = "QllUAVmSRmK8"
-        self.remote_dir = "/htdocs/ECSV"
+        self.ftp_username = "coursetrack@coursetrack.etairtv.com"
+        self.ftp_password = "T!!r4Tda!usbZB4&"  # Direct password string
+        
+        # Jailed FTP path relative to the subdomain root directory:
+        self.remote_dir = "/ECSV" 
         self.local_dir = r"C:\xampp\htdocs\coursetrack\ECSV"
         
     def connect_ftp(self):

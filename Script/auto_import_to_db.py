@@ -20,7 +20,7 @@ if sys.platform == 'win32':
 class AutoDBImporter:
     def __init__(self):
         # Configuration
-        self.base_url = "https://coursetrack.infinityfree.me"
+        self.base_url = "https://coursetrack.etairtv.com"
         self.login_url = f"{self.base_url}/admin/admin_login.php"
         self.import_page_url = f"{self.base_url}/admin/admin_panel.php?page=import_training"
         self.csv_folder = r"C:\xampp\htdocs\coursetrack\ECSV"
