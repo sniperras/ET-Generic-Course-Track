@@ -47,6 +47,7 @@ requirePageAccess($page);
 // Whitelist of allowed pages to include
 $allowed_pages = [
   'dashboard',
+  'department_gap_report',
   'employees',
   'courses',
   'records',
@@ -126,6 +127,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
         <?php
         $nav = [
           'dashboard' => 'Dashboard',
+          'department_gap_report' => 'Department Gap Report',
           'employees' => 'Employees',
           'courses'   => 'Courses',
           'records'   => 'Training Records',
@@ -182,6 +184,9 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           break;
         case 'import':
           include __DIR__ . '/import.php';
+          break;
+        case 'department_gap_report':
+          include __DIR__ . '/department_gap_report.php';
           break;
         case 'import_training':
           include __DIR__ . '/import_training.php';
