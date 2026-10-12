@@ -6,13 +6,17 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../include/db_connect.php';
 require_once __DIR__ . '/../include/auth.php';
 
-// Handle password change
+// Handle password change (logged-in users only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_own_password'])) {
+  if (!isAdminLoggedIn()) {
+    header('Location: admin_login.php');
+    exit;
+  }
+
   $current_password = $_POST['current_password'];
-  $new_password = $_POST['new_password'];
+  $new_password     = $_POST['new_password'];
   $confirm_password = $_POST['confirm_password'];
 
-  // Get current user's password from database
   $user_id = $_SESSION['admin_user_id'];
   $stmt = $pdo->prepare("SELECT password FROM users WHERE user_id = ?");
   $stmt->execute([$user_id]);
@@ -25,7 +29,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_own_password']
   } elseif (strlen($new_password) < 6) {
     $_SESSION['password_error'] = 'Password must be at least 6 characters long!';
   } else {
-    // Update password
     $hashed_password = password_hash($new_password, PASSWORD_BCRYPT);
     $update_stmt = $pdo->prepare("UPDATE users SET password = ? WHERE user_id = ?");
     if ($update_stmt->execute([$hashed_password, $user_id])) {
@@ -39,12 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_own_password']
   exit;
 }
 
-// Get the requested page
-$page = $_GET['page'] ?? 'dashboard';
-
-// Check if user has access to this page
-requirePageAccess($page);
-// Whitelist of allowed pages to include
+// Whitelist of allowed pages
 $allowed_pages = [
   'dashboard',
   'department_gap_report',
@@ -58,18 +56,17 @@ $allowed_pages = [
   'users'
 ];
 
-// Change default page to 'dashboard'
+// Resolve page
 $page_raw = $_GET['page'] ?? 'dashboard';
 $page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'dashboard';
 
-// require admin (redirect or JSON response for AJAX)
-requireAdmin();
+// Auth gate: public pages skip login, everything else requires it
+// (requirePageAccess internally calls requireAdmin() for protected pages)
+requirePageAccess($page);
 
-// Check user role from session
 $current_user_role = $_SESSION['user_role'] ?? '';
 
-// Check if current user can access the requested page
-// Instead of manually checking $current_user_role
+// Users page is admin-only
 if (!canManageUsers() && $page === 'users') {
   $_SESSION['error_message'] = 'Access denied. Only administrators can manage users.';
   header('Location: admin_panel.php?page=dashboard');
@@ -93,7 +90,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Generic Course Track</title>
+  <title>Ethiopian Airlines Generic Course Track</title>
   <link rel="icon" type="image/png" href="../img/ethiopian_logo.ico">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -108,15 +105,19 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
   <header class="bg-blue-900 text-white shadow-lg">
     <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
       <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
-      <h1 class="text-2xl font-bold">Generic Course Track</h1>
+      <h1 class="text-2xl font-bold">Ethiopian Airlines Generic Course Track</h1>
       <div class="flex items-center gap-6">
-        <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Admin') ?></strong></span>
+        <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Guest') ?></strong></span>
         <span class="text-sm bg-blue-700 px-3 py-1 rounded-full"><?= strtoupper($current_user_role) ?></span>
-        <button onclick="openPasswordModal()"
-          class="bg-yellow-600 hover:bg-yellow-700 px-5 py-2 rounded-lg font-medium transition duration-200">
-          Change Password
-        </button>
-        <a href="/index.php" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg font-medium transition duration-200">Logout</a>
+        <?php if ($current_user_role !== 'guest'): ?>
+          <button onclick="openPasswordModal()"
+            class="bg-yellow-600 hover:bg-yellow-700 px-5 py-2 rounded-lg font-medium transition duration-200">
+            Change Password
+          </button>
+          <a href="/index.php" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg font-medium transition duration-200">Logout</a>
+        <?php else: ?>
+          <a href="admin_login.php" class="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-lg font-medium transition duration-200">Login</a>
+        <?php endif; ?>
       </div>
     </div>
   </header>
@@ -136,9 +137,17 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           'training_disputes_manage' => 'Manage Training Disputes',
           'users'     => 'Users'
         ];
+
+        // Guests see only public pages
+        if ($current_user_role === 'guest') {
+          $nav = [
+            'dashboard' => 'Dashboard',
+            'department_gap_report' => 'Department Gap Report',
+          ];
+        }
+
         foreach ($nav as $key => $label):
           $active = $page === $key;
-          // Hide "Users" menu item for non-admin users
           if ($key === 'users' && $current_user_role !== 'admin') {
             continue;
           }
@@ -153,25 +162,19 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 
     <main class="flex-1 p-10">
       <?php
-      // Display success message if set
       if (isset($_SESSION['password_success'])) {
         echo '<div class="bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded-lg mb-6">' . htmlspecialchars($_SESSION['password_success']) . '</div>';
         unset($_SESSION['password_success']);
       }
-
-      // Display error message if set
       if (isset($_SESSION['password_error'])) {
         echo '<div class="bg-red-100 border border-red-400 text-red-800 px-4 py-3 rounded-lg mb-6">' . htmlspecialchars($_SESSION['password_error']) . '</div>';
         unset($_SESSION['password_error']);
       }
-
-      // Display error message if set
       if (isset($_SESSION['error_message'])) {
         echo '<div class="bg-red-100 text-red-800 p-4 rounded-lg mb-6">' . htmlspecialchars($_SESSION['error_message']) . '</div>';
         unset($_SESSION['error_message']);
       }
 
-      // include the chosen page (safe via whitelist)
       switch ($page) {
         case 'employees':
           include __DIR__ . '/employees.php';
@@ -195,7 +198,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           include __DIR__ . '/training_disputes_manage.php';
           break;
         case '1&status=open':
-          include __DIR__ . '/training_disputes_manage.php?1&status=open';
+          include __DIR__ . '/training_disputes_manage.php';
           break;
         case 'users':
           include __DIR__ . '/users.php';
@@ -211,47 +214,49 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
     </main>
   </div>
 
-  <!-- Change Password Modal -->
-  <div id="passwordModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
-    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-lg font-bold text-gray-900">Change Your Password</h3>
-        <button onclick="closePasswordModal()" class="text-gray-600 hover:text-gray-800 text-2xl">&times;</button>
+  <!-- Change Password Modal (only for logged-in users) -->
+  <?php if ($current_user_role !== 'guest'): ?>
+    <div id="passwordModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+      <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-bold text-gray-900">Change Your Password</h3>
+          <button onclick="closePasswordModal()" class="text-gray-600 hover:text-gray-800 text-2xl">&times;</button>
+        </div>
+
+        <form method="POST" onsubmit="return validatePasswordForm()">
+          <div class="mb-4">
+            <label class="block text-gray-700 text-sm font-bold mb-2">Current Password</label>
+            <input type="password" name="current_password" id="current_password" required
+              class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600">
+          </div>
+
+          <div class="mb-4">
+            <label class="block text-gray-700 text-sm font-bold mb-2">New Password (min 6 chars)</label>
+            <input type="password" name="new_password" id="new_password" required
+              class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600">
+          </div>
+
+          <div class="mb-4">
+            <label class="block text-gray-700 text-sm font-bold mb-2">Confirm New Password</label>
+            <input type="password" name="confirm_password" id="confirm_password" required
+              class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600">
+            <p id="password_error" class="text-red-500 text-xs mt-1 hidden">Passwords do not match!</p>
+          </div>
+
+          <div class="flex gap-2">
+            <button type="submit" name="change_own_password"
+              class="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded transition duration-200">
+              Change Password
+            </button>
+            <button type="button" onclick="closePasswordModal()"
+              class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition duration-200">
+              Cancel
+            </button>
+          </div>
+        </form>
       </div>
-
-      <form method="POST" onsubmit="return validatePasswordForm()">
-        <div class="mb-4">
-          <label class="block text-gray-700 text-sm font-bold mb-2">Current Password</label>
-          <input type="password" name="current_password" id="current_password" required
-            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600">
-        </div>
-
-        <div class="mb-4">
-          <label class="block text-gray-700 text-sm font-bold mb-2">New Password (min 6 chars)</label>
-          <input type="password" name="new_password" id="new_password" required
-            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600">
-        </div>
-
-        <div class="mb-4">
-          <label class="block text-gray-700 text-sm font-bold mb-2">Confirm New Password</label>
-          <input type="password" name="confirm_password" id="confirm_password" required
-            class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600">
-          <p id="password_error" class="text-red-500 text-xs mt-1 hidden">Passwords do not match!</p>
-        </div>
-
-        <div class="flex gap-2">
-          <button type="submit" name="change_own_password"
-            class="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded transition duration-200">
-            Change Password
-          </button>
-          <button type="button" onclick="closePasswordModal()"
-            class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition duration-200">
-            Cancel
-          </button>
-        </div>
-      </form>
     </div>
-  </div>
+  <?php endif; ?>
 
   <script>
     function openPasswordModal() {
@@ -285,10 +290,9 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
       return true;
     }
 
-    // Close modal when clicking outside
     window.onclick = function(event) {
       const modal = document.getElementById('passwordModal');
-      if (event.target === modal) {
+      if (modal && event.target === modal) {
         closePasswordModal();
       }
     }
