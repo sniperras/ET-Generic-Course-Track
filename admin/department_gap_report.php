@@ -14,7 +14,10 @@ ob_start();
 
 require_once __DIR__ . '/../include/db_connect.php';
 require_once __DIR__ . '/../include/auth.php';
-requireAdmin();
+if (!isGuest()) {
+    requireAdmin();
+}
+
 
 // -----------------------------------------------------------------
 // CONFIG
@@ -752,6 +755,7 @@ $js_pie_values = json_encode($pie_values);
                                 </th>
                             <?php endforeach; ?>
                             <th class="total-col clickable-header"
+                                style="color: black !important;"
                                 onclick="location.href='?page=department_gap_report&export=total&to_be_days=<?= $to_be_days ?>'"
                                 title="Click to export all rows">Total GAP</th>
                         </tr>
