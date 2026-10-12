@@ -24,7 +24,7 @@ $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 const FOREVER_THRESHOLD = 999999;
 
 // -----------------------------------------------------------------
-// Helpers (same rules as dashboard)
+// Helpers
 // -----------------------------------------------------------------
 function safe_table($t)
 {
@@ -43,7 +43,6 @@ function is_position_eligible($course_code, $position)
     $code = strtoupper(trim((string)$course_code));
     $pos  = strtoupper(trim((string)$position));
 
-    // Positive
     if ($code === 'ETTPM') {
         if (!(strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false)) return false;
     }
@@ -55,7 +54,6 @@ function is_position_eligible($course_code, $position)
             || strpos($pos, 'TECHNICIAN IV')  !== false
             || strpos($pos, 'TEAM LEADER')    !== false)) return false;
     }
-    // Negative
     if ($code === 'MEL') {
         if (strpos($pos, 'MECHANIC') !== false) return false;
     }
@@ -72,12 +70,12 @@ function is_employee_eligible($cc_course_map, $cc, $course_code, $position)
 }
 
 // -----------------------------------------------------------------
-// Force refresh (POST only — no URL param)
+// Force refresh
 // -----------------------------------------------------------------
 $force_refresh = ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['force_refresh']));
 
 // -----------------------------------------------------------------
-// to_be_days window (default 90 like the public dashboard)
+// to_be_days
 // -----------------------------------------------------------------
 if (isset($_GET['to_be_days']))       $to_be_days = max(0, (int)$_GET['to_be_days']);
 elseif (isset($_POST['to_be_days']))  $to_be_days = max(0, (int)$_POST['to_be_days']);
@@ -87,8 +85,8 @@ $_SESSION['dept_gap_to_be_days'] = $to_be_days;
 // -----------------------------------------------------------------
 // Load CC → Department map
 // -----------------------------------------------------------------
-$cc_dept_map = [];   // [cc] = dept
-$departments = [];   // list of unique departments (sorted)
+$cc_dept_map = [];
+$departments = [];
 try {
     $rows = $pdo->query("SELECT cost_center, department FROM cost_center_departments")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rows as $r) {
@@ -127,7 +125,7 @@ $courses = $pdo->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // -----------------------------------------------------------------
-// Load active employees (only those with a mapped cost center)
+// Load active employees
 // -----------------------------------------------------------------
 $employees = [];
 $unmapped_ccs = [];
@@ -136,7 +134,7 @@ foreach ($pdo->query("SELECT employee_id, full_name, position, cost_center FROM 
     if ($cc === '') continue;
     if (!isset($cc_dept_map[$cc])) {
         $unmapped_ccs[$cc] = ($unmapped_ccs[$cc] ?? 0) + 1;
-        continue; // skip unmapped employees for the report
+        continue;
     }
     $e['cost_center'] = $cc;
     $e['department']  = $cc_dept_map[$cc];
@@ -144,21 +142,20 @@ foreach ($pdo->query("SELECT employee_id, full_name, position, cost_center FROM 
 }
 
 // =================================================================
-// EXPORT HANDLERS (must run before any HTML output)
+// EXPORT HANDLERS
 // =================================================================
 if (isset($_GET['export'])) {
 
-    // Build matrix data (no cache read for exports — always fresh)
     $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days);
 
-    $scope = $_GET['export'];      // cell | course | dept | total
-    $code  = $_GET['course'] ?? ''; // course_code
-    $dept  = $_GET['dept']   ?? ''; // department
+    $scope = $_GET['export'];
+    $code  = $_GET['course'] ?? '';
+    $dept  = $_GET['dept']   ?? '';
+    $type  = $_GET['type']   ?? '';   // NEW: for summary rows
 
     $filename_parts = ['dept_gap'];
     $rows_to_export = [];
 
-    // Common headers
     $headers = [
         'Course Code',
         'Course Name',
@@ -197,7 +194,7 @@ if (isset($_GET['export'])) {
             }
         }
     } elseif ($scope === 'total') {
-        // Everything
+        // Everything (all rows across all depts)
         $filename_parts[] = 'all';
         foreach ($courses as $c) {
             $cc = trim($c['course_code']);
@@ -207,30 +204,69 @@ if (isset($_GET['export'])) {
                 }
             }
         }
+    } elseif ($scope === 'summary' && $type !== '') {
+        // NEW: summary rows — Expired / Initial / To-be / Total GAP
+        $filename_parts[] = 'summary';
+        $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $type);
+        if ($dept !== '') {
+            $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $dept);
+        }
+
+        // Which depts to include?
+        $target_depts = ($dept !== '') ? [$dept] : $departments;
+
+        foreach ($courses as $c) {
+            $cc = trim($c['course_code']);
+            foreach ($target_depts as $d) {
+                foreach (($matrix['drilldown'][$cc][$d] ?? []) as $r) {
+                    // $r[9] is the "Gap Type" (Expired / Tobe / Initial)
+                    $gap_type_lc = strtolower($r[9]);
+                    $include = false;
+                    switch ($type) {
+                        case 'expired':
+                            $include = ($gap_type_lc === 'expired');
+                            break;
+                        case 'tobe':
+                            $include = ($gap_type_lc === 'tobe');
+                            break;
+                        case 'initial':
+                            $include = ($gap_type_lc === 'initial');
+                            break;
+                        case 'gap_active':
+                            // Expired + Initial
+                            $include = in_array($gap_type_lc, ['expired', 'initial'], true);
+                            break;
+                        case 'gap_total':
+                            // Expired + Initial + To-be
+                            $include = in_array($gap_type_lc, ['expired', 'initial', 'tobe'], true);
+                            break;
+                    }
+                    if ($include) $rows_to_export[] = $r;
+                }
+            }
+        }
     } else {
         header('HTTP/1.1 400 Bad Request');
         echo "Invalid export scope";
         exit;
     }
 
-    // Sort for stable output
+    // Sort for stable output: course, dept, emp
     usort($rows_to_export, function ($a, $b) {
         $cmp = strcmp($a[0] . '|' . $a[5], $b[0] . '|' . $b[5]);
-        if ($cmp === 0) $cmp = strcmp($a[2], $b[2]);  // course, dept, emp
+        if ($cmp === 0) $cmp = strcmp($a[2], $b[2]);
         return $cmp;
     });
 
     $filename = implode('_', $filename_parts) . '_' . date('Ymd_His') . '.csv';
 
-    // Clean any buffered output
     while (ob_get_level()) ob_end_clean();
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
 
     $out = fopen('php://output', 'w');
-    // BOM for Excel UTF-8 friendliness
-    fwrite($out, "\xEF\xBB\xBF");
+    fwrite($out, "\xEF\xBB\xBF"); // BOM
     fputcsv($out, $headers);
     foreach ($rows_to_export as $row) {
         fputcsv($out, $row);
@@ -240,17 +276,17 @@ if (isset($_GET['export'])) {
 }
 
 // =================================================================
-// BUILD MATRIX FUNCTION (used by both page and exports)
+// BUILD MATRIX
 // =================================================================
 function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
 {
     $matrix = [
-        'gap'        => [],   // [course][dept] = count (Expired + To-be)
-        'expired'    => [],   // [course][dept] = count
-        'tobe'       => [],   // [course][dept] = count
-        'initial'    => [],   // [course][dept] = count
-        'na'         => [],   // [course][dept] = true if "N/A" (no CC requires it)
-        'drilldown'  => [],   // [course][dept][] = row data for CSV
+        'gap'        => [],
+        'expired'    => [],
+        'tobe'       => [],
+        'initial'    => [],
+        'na'         => [],
+        'drilldown'  => [],
         'dept_totals_gap'     => [],
         'dept_totals_expired' => [],
         'dept_totals_initial' => [],
@@ -261,7 +297,6 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
         'grand_tobe'          => 0,
     ];
 
-    // Pre-group employees by department for faster access
     $emp_by_dept = [];
     foreach ($employees as $e) {
         $emp_by_dept[$e['department']][] = $e;
@@ -278,7 +313,6 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
 
         if (!safe_table($tbl)) continue;
 
-        // Fetch completed data for this course
         $completed = [];
         try {
             $stmt = $pdo->query("SELECT ID, CompletedDate, Status FROM `{$tbl}` WHERE CompletedDate IS NOT NULL AND CompletedDate != '' AND CompletedDate != '0000-00-00'");
@@ -289,12 +323,11 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
             $completed = [];
         }
 
-        // Determine which departments (well, which CCs) require this course
-        $required_ccs_by_dept = [];   // [dept] = true if any CC in dept requires this course
+        $required_ccs_by_dept = [];
         foreach ($cc_course_map as $cc => $codes) {
             if (!isset($codes[$course_code])) continue;
-            $dept = $GLOBALS['cc_dept_map'][$cc] ?? null;
-            if ($dept !== null) $required_ccs_by_dept[$dept] = true;
+            $d = $GLOBALS['cc_dept_map'][$cc] ?? null;
+            if ($d !== null) $required_ccs_by_dept[$d] = true;
         }
 
         foreach ($GLOBALS['departments'] as $dept) {
@@ -350,7 +383,6 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
 
                 if ($gap_type === 'ok') continue;
 
-                // Bucket the counts
                 if ($gap_type === 'expired') {
                     $matrix['expired'][$course_code][$dept]++;
                     $matrix['gap'][$course_code][$dept]++;
@@ -359,10 +391,8 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
                     $matrix['gap'][$course_code][$dept]++;
                 } elseif ($gap_type === 'initial') {
                     $matrix['initial'][$course_code][$dept]++;
-                    // Initial is NOT counted in GAP (per spec)
                 }
 
-                // Drilldown row (for CSV)
                 $matrix['drilldown'][$course_code][$dept][] = [
                     $course_code,
                     $course_name,
@@ -377,7 +407,6 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
                 ];
             }
 
-            // Accumulate department totals
             $matrix['dept_totals_gap'][$dept]     = ($matrix['dept_totals_gap'][$dept] ?? 0)     + $matrix['gap'][$course_code][$dept];
             $matrix['dept_totals_expired'][$dept] = ($matrix['dept_totals_expired'][$dept] ?? 0) + $matrix['expired'][$course_code][$dept];
             $matrix['dept_totals_initial'][$dept] = ($matrix['dept_totals_initial'][$dept] ?? 0) + $matrix['initial'][$course_code][$dept];
@@ -418,7 +447,7 @@ if ($use_cache) {
 }
 
 // =================================================================
-// PIE CHART DATA — GAP by department
+// PIE CHART DATA
 // =================================================================
 $pie_labels = [];
 $pie_values = [];
@@ -431,14 +460,6 @@ foreach ($departments as $d) {
 }
 $js_pie_labels = json_encode($pie_labels);
 $js_pie_values = json_encode($pie_values);
-$js_departments = json_encode($departments);
-$js_to_be_days = (int)$to_be_days;
-
-// Build a lookup: [course_code] = course_name
-$course_names = [];
-foreach ($courses as $c) {
-    $course_names[trim($c['course_code'])] = $c['course_name'];
-}
 ?>
 <!doctype html>
 <html lang="en">
@@ -546,6 +567,46 @@ foreach ($courses as $c) {
             background: #e2e8f0 !important;
         }
 
+        /* NEW: summary rows — clickable cells, distinct hover */
+        .summary-row td {
+            background: #f8fafc !important;
+            font-weight: 700;
+            color: #0f172a;
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+
+        .summary-row td.course-col {
+            background: #e2e8f0 !important;
+            text-align: left;
+        }
+
+        .summary-row td:hover {
+            background: #fde68a !important;
+            outline: 2px solid #f59e0b;
+            outline-offset: -2px;
+        }
+
+        .summary-row td.course-col:hover {
+            background: #fde68a !important;
+        }
+
+        .expired-row td {
+            color: #b91c1c !important;
+        }
+
+        .tobe-row td {
+            color: #b45309 !important;
+        }
+
+        .initial-row td {
+            color: #a16207 !important;
+        }
+
+        .totalgap-row td {
+            color: #1e40af !important;
+        }
+
         .dept-header {
             background: #1d4ed8 !important;
         }
@@ -569,7 +630,6 @@ foreach ($courses as $c) {
             font-size: 13px;
         }
 
-        /* Table container: allow horizontal scroll for many depts */
         .matrix-wrap {
             overflow: auto;
             max-height: 70vh;
@@ -583,7 +643,6 @@ foreach ($courses as $c) {
 
     <div class="max-w-7xl mx-auto p-6">
 
-        <!-- Header -->
         <div class="flex items-start justify-between mb-4 flex-wrap gap-3">
             <div>
                 <h1 class="text-2xl font-bold text-gray-800">MRO Training GAP — by Department</h1>
@@ -594,6 +653,7 @@ foreach ($courses as $c) {
             </div>
             <div class="flex items-center gap-3">
                 <form method="GET" class="flex items-center gap-2" id="toBeForm">
+                    <input type="hidden" name="page" value="department_gap_report">
                     <label class="text-sm text-gray-600">To-be window (days):</label>
                     <input type="number" name="to_be_days" min="0"
                         value="<?= htmlspecialchars($to_be_days) ?>"
@@ -633,7 +693,6 @@ foreach ($courses as $c) {
             </div>
         <?php endif; ?>
 
-        <!-- Pie chart -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <div class="bg-white p-5 rounded-xl shadow lg:col-span-1">
                 <h3 class="font-bold mb-3 text-gray-700">GAP by Department</h3>
@@ -698,6 +757,7 @@ foreach ($courses as $c) {
                         </tr>
                     </thead>
                     <tbody>
+                        <!-- Course rows -->
                         <?php foreach ($courses as $c):
                             $code = trim($c['course_code']);
                             $row_gap = 0;
@@ -730,53 +790,119 @@ foreach ($courses as $c) {
                             </tr>
                         <?php endforeach; ?>
 
-                        <!-- Section A: Expired / Initial / Total GAP[active] -->
-                        <tr class="total-row">
-                            <td class="course-col">Expired</td>
+                        <!-- ============================================================
+                             SUMMARY ROWS — now fully clickable
+                             Every cell, the row label, and the grand-total cell export.
+                             ============================================================ -->
+
+                        <!-- Section A: Expired -->
+                        <tr class="summary-row expired-row">
+                            <td class="course-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=expired&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export ALL expired rows across all departments">
+                                Expired
+                            </td>
                             <?php foreach ($departments as $d): ?>
-                                <td><?= number_format($matrix['dept_totals_expired'][$d] ?? 0) ?></td>
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=expired&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                    title="Click to export expired rows for <?= htmlspecialchars($d) ?>">
+                                    <?= number_format($matrix['dept_totals_expired'][$d] ?? 0) ?>
+                                </td>
                             <?php endforeach; ?>
-                            <td class="total-col"><?= number_format($matrix['grand_expired']) ?></td>
+                            <td class="total-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=expired&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export all expired rows">
+                                <?= number_format($matrix['grand_expired']) ?>
+                            </td>
                         </tr>
-                        <tr class="total-row">
-                            <td class="course-col">Initial training not taken</td>
+
+                        <!-- Section A: Initial training not taken -->
+                        <tr class="summary-row initial-row">
+                            <td class="course-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=initial&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export ALL initial rows across all departments">
+                                Initial training not taken
+                            </td>
                             <?php foreach ($departments as $d): ?>
-                                <td><?= number_format($matrix['dept_totals_initial'][$d] ?? 0) ?></td>
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=initial&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                    title="Click to export initial rows for <?= htmlspecialchars($d) ?>">
+                                    <?= number_format($matrix['dept_totals_initial'][$d] ?? 0) ?>
+                                </td>
                             <?php endforeach; ?>
-                            <td class="total-col"><?= number_format($matrix['grand_initial']) ?></td>
+                            <td class="total-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=initial&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export all initial rows">
+                                <?= number_format($matrix['grand_initial']) ?>
+                            </td>
                         </tr>
-                        <tr class="total-row">
-                            <td class="course-col">Total GAP [active employees]</td>
+
+                        <!-- Section A: Total GAP [active employees] -->
+                        <tr class="summary-row totalgap-row">
+                            <td class="course-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export ALL expired + initial rows">
+                                Total GAP [active employees]
+                            </td>
                             <?php foreach ($departments as $d):
                                 $v = ($matrix['dept_totals_expired'][$d] ?? 0) + ($matrix['dept_totals_initial'][$d] ?? 0);
                             ?>
-                                <td><?= number_format($v) ?></td>
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                    title="Click to export expired + initial rows for <?= htmlspecialchars($d) ?>">
+                                    <?= number_format($v) ?>
+                                </td>
                             <?php endforeach; ?>
-                            <td class="total-col"><?= number_format($matrix['grand_expired'] + $matrix['grand_initial']) ?></td>
+                            <td class="total-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export all expired + initial rows">
+                                <?= number_format($matrix['grand_expired'] + $matrix['grand_initial']) ?>
+                            </td>
                         </tr>
 
                         <tr>
                             <td colspan="<?= count($departments) + 2 ?>" style="height:12px; background:transparent; border:none;"></td>
                         </tr>
 
-                        <!-- Section B: To-be / Total GAP -->
-                        <tr class="total-row">
-                            <td class="course-col">To be expired</td>
+                        <!-- Section B: To be expired -->
+                        <tr class="summary-row tobe-row">
+                            <td class="course-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=tobe&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export ALL to-be-expired rows across all departments">
+                                To be expired
+                            </td>
                             <?php foreach ($departments as $d): ?>
-                                <td><?= number_format($matrix['dept_totals_tobe'][$d] ?? 0) ?></td>
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=tobe&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                    title="Click to export to-be-expired rows for <?= htmlspecialchars($d) ?>">
+                                    <?= number_format($matrix['dept_totals_tobe'][$d] ?? 0) ?>
+                                </td>
                             <?php endforeach; ?>
-                            <td class="total-col"><?= number_format($matrix['grand_tobe']) ?></td>
+                            <td class="total-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=tobe&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export all to-be-expired rows">
+                                <?= number_format($matrix['grand_tobe']) ?>
+                            </td>
                         </tr>
-                        <tr class="total-row">
-                            <td class="course-col">Total GAP</td>
+
+                        <!-- Section B: Total GAP -->
+                        <tr class="summary-row totalgap-row">
+                            <td class="course-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export ALL expired + initial + to-be rows">
+                                Total GAP
+                            </td>
                             <?php foreach ($departments as $d):
                                 $v = ($matrix['dept_totals_expired'][$d] ?? 0)
                                     + ($matrix['dept_totals_initial'][$d] ?? 0)
                                     + ($matrix['dept_totals_tobe'][$d] ?? 0);
                             ?>
-                                <td><?= number_format($v) ?></td>
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                    title="Click to export expired + initial + to-be rows for <?= htmlspecialchars($d) ?>">
+                                    <?= number_format($v) ?>
+                                </td>
                             <?php endforeach; ?>
-                            <td class="total-col"><?= number_format($matrix['grand_expired'] + $matrix['grand_initial'] + $matrix['grand_tobe']) ?></td>
+                            <td class="total-col"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&to_be_days=<?= $to_be_days ?>'"
+                                title="Click to export all expired + initial + to-be rows">
+                                <?= number_format($matrix['grand_expired'] + $matrix['grand_initial'] + $matrix['grand_tobe']) ?>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -784,6 +910,8 @@ foreach ($courses as $c) {
 
             <p class="text-xs text-gray-500 mt-3">
                 <strong>Tip:</strong> Click any <em>cell</em>, <em>row total</em>, <em>column header</em>, or the <em>grand total</em> button to export a CSV of exactly that scope.
+                <br>
+                Summary rows are also clickable — clicking any number in those rows exports a CSV of exactly the matching employees.
             </p>
         </div>
 
@@ -836,11 +964,6 @@ foreach ($courses as $c) {
                 }
             });
         }
-
-        // Preserve to_be_days on the GET form when submitted
-        document.getElementById('toBeForm')?.addEventListener('submit', function() {
-            // Nothing to add — form already posts to GET with to_be_days
-        });
     </script>
 </body>
 
