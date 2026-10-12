@@ -5,7 +5,9 @@ ob_start();
 
 require_once __DIR__ . '/../include/db_connect.php';
 require_once __DIR__ . '/../include/auth.php';
-requireAdmin();
+if (!isGuest()) {
+    requireAdmin();
+}
 
 // ---------------- CONFIG ----------------
 $CACHE_TTL = 300;
