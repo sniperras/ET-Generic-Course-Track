@@ -551,9 +551,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 <head>
     <meta charset="utf-8">
+    <meta name="title" content="Ethiopian Airlines Course Track | MRO Employee Training Status">
+    <meta name="description" content="Official Ethiopian Airlines MRO Course Track portal. Check employee training records, EASA Part 145 compliance, Safety Management System (SMS), EWIS, and qualification expiry status instantly.">
+    <meta name="keywords" content="Ethiopian Airlines Course Track, Ethiopian Airlines MRO, ET Course Track, Ethiopian Aviation Training Status, MRO Training Tracker, EASA Part 145, Fuel Tank Safety, EWIS, SMS MRO, Aviation Training Expiry Status">
 
-
-    <title>Generic Course Track — Check Your Training Status</title>
+    <title>Ethiopian Airlines Course Track | MRO Employee Training Status</title>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -581,7 +583,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             <div class="flex items-center gap-3">
                 <img src="./img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
                 <div>
-                    <h1 class="text-2xl font-bold">Generic Course Track</h1>
+                    <h1 class="text-2xl font-bold">Ethiopian Airlines Course Track</h1>
                     <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
                 </div>
             </div>
@@ -831,6 +833,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                 <div class="text-sm opacity-90 mt-1">
                                     ID: <span class="font-mono"><?= h($employee['employee_id']) ?></span> —
                                     CC: <?= h($employee['cost_center'] ?? 'N/A') ?> •
+                                    Department: <?= h($employee['department'] ?? 'N/A') ?> •
                                     <?= h($employee['position'] ?? 'N/A') ?>
                                 </div>
                             </div>
