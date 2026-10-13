@@ -5,6 +5,13 @@ error_reporting(E_ALL);
 
 // declare(strict_types=1);
 if (session_status() === PHP_SESSION_NONE) session_start();
+
+// Keep personalized lookups and other state-changing responses out of search indexes.
+$is_indexable_homepage = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && empty($_GET);
+if (!$is_indexable_homepage) {
+    header('X-Robots-Tag: noindex, nofollow, noarchive', true);
+}
+
 require_once __DIR__ . '/include/db_connect.php';
 
 // Error handling for AJAX - disable error output for JSON responses
@@ -553,7 +560,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     <meta charset="utf-8">
 
 
-    <title>Generic Course Track — Check Your Training Status</title>
+    <title>ET AirTV CourseTrack | Employee Training Status</title>
+    <meta name="description" content="ET AirTV CourseTrack lets employees check course completion, training expiry dates, and submitted complaint updates through one central employee portal.">
+    <meta name="robots" content="<?= $is_indexable_homepage ? 'index, follow' : 'noindex, nofollow' ?>">
+    <?php if ($is_indexable_homepage): ?>
+    <link rel="canonical" href="https://coursetrack.etairtv.com/">
+    <?php endif; ?>
+    <meta property="og:title" content="ET AirTV CourseTrack | Employee Training Status">
+    <meta property="og:description" content="Check course completion and training expiry status, then follow up on submitted training complaints.">
+    <meta property="og:url" content="https://coursetrack.etairtv.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="ET AirTV CourseTrack">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="ET AirTV CourseTrack | Employee Training Status">
+    <meta name="twitter:description" content="Check course completion and training expiry status, then follow up on submitted training complaints.">
+    <meta name="theme-color" content="#1e3a8a">
+    <?php if ($is_indexable_homepage): ?>
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "ET AirTV CourseTrack",
+            "url": "https://coursetrack.etairtv.com/"
+        }
+    </script>
+    <?php endif; ?>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -579,9 +610,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     <header class="bg-blue-900 text-white shadow">
         <div class="max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
             <div class="flex items-center gap-3">
-                <img src="./img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
+                <img src="./img/logo.png" alt="ET AirTV CourseTrack" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
                 <div>
-                    <h1 class="text-2xl font-bold">Generic Course Track</h1>
+                    <h1 class="text-2xl font-bold">ET AirTV CourseTrack</h1>
                     <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
                 </div>
             </div>
