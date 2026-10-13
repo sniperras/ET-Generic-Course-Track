@@ -699,6 +699,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 
 
+
     <title>Generic Course Track — Check Your Training Status</title>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
