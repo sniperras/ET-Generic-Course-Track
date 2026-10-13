@@ -51,6 +51,73 @@ function is_always_not_taken_course(string $employee_id, string $course_code): b
     return in_array(strtoupper(trim($course_code)), $always_not_taken_courses);
 }
 
+/* --------- NEW: Cost-center + position eligibility helpers --------- */
+
+/**
+ * Loads the CC → required-course map from cc_course_requirements.
+ * Returns [cost_center][course_code] = true
+ */
+function load_cc_course_map(PDO $pdo): array
+{
+    $map = [];
+    try {
+        $rows = $pdo->query("SELECT cost_center, course_code FROM cc_course_requirements")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            $map[trim($r['cost_center'])][trim($r['course_code'])] = true;
+        }
+    } catch (Exception $e) {
+        // Table missing → treat as "no mapping configured"
+        return [];
+    }
+    return $map;
+}
+
+function is_course_required(array $cc_course_map, ?string $cc, string $course_code): bool
+{
+    // If map is empty, don't restrict anything (backward compatible)
+    if (empty($cc_course_map)) return true;
+    if ($cc === null || trim($cc) === '') return false;
+    return isset($cc_course_map[trim($cc)][$course_code]);
+}
+
+/**
+ * Position eligibility — mirrors the dashboard rules.
+ */
+function is_position_eligible(string $course_code, ?string $position): bool
+{
+    $code = strtoupper(trim($course_code));
+    $pos  = strtoupper(trim((string)$position));
+
+    // Positive rules
+    if ($code === 'ETTPM') {
+        if (!(strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false)) return false;
+    }
+    if ($code === 'SMS-MGR') {
+        if (strpos($pos, 'MGR') === false) return false;
+    }
+    if ($code === 'IP') {
+        if (!(strpos($pos, 'TECHNICIAN III') !== false
+            || strpos($pos, 'TECHNICIAN IV')  !== false
+            || strpos($pos, 'TEAM LEADER')    !== false)) return false;
+    }
+    // Negative rules
+    if ($code === 'MEL') {
+        if (strpos($pos, 'MECHANIC') !== false) return false;
+    }
+    if ($code === 'DGR' || $code === 'RCAT') {
+        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false) return false;
+    }
+    return true;
+}
+
+function is_employee_eligible_for_course(array $cc_course_map, ?string $cc, string $course_code, ?string $position): bool
+{
+    return is_course_required($cc_course_map, $cc, $course_code)
+        && is_position_eligible($course_code, $position);
+}
+
+/* --------- END NEW helpers --------- */
+
 function safe_table(string $t): bool
 {
     return (bool) preg_match('/^course_records_[a-zA-Z0-9_]+$/', trim($t));
@@ -125,6 +192,8 @@ function badge_class_by_gap(string $gap): string
             return 'bg-amber-500 text-white';
         case 'ok':
             return 'bg-green-600 text-white';
+        case 'na':
+            return 'bg-slate-400 text-white';   // ← Not Applicable
         default:
             return 'bg-gray-500 text-white';
     }
@@ -204,6 +273,9 @@ $courses = $pdo->query("
     ORDER BY course_code
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+/* --------- Load CC → required-course map ONCE --------- */
+$cc_course_map = load_cc_course_map($pdo);
+
 /* --------- Handle employee status check --------- */
 $employee = null;
 $emp_id_submitted = '';
@@ -232,6 +304,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                 $course_name = $c['course_name'];
                 $validity_months = (int)$c['validity_months'];
                 $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
+
+                // ═════════════════════════════════════════════════════════════
+                // NEW: Not-Applicable gate — checks CC map + position rules.
+                // Runs BEFORE the always_not_taken special case.
+                // ═════════════════════════════════════════════════════════════
+                $cc  = $employee['cost_center'] ?? '';
+                $pos = $employee['position'] ?? '';
+
+                if (!is_employee_eligible_for_course($cc_course_map, $cc, $course_code, $pos)) {
+                    $results[] = [
+                        'course_code'     => $course_code,
+                        'course_name'     => $course_name,
+                        'completed_raw'   => null,
+                        'completed'       => null,
+                        'status_raw'      => 'Not Applicable',
+                        'status'          => 'Not Applicable',
+                        'expiry'          => null,
+                        'gap_type'        => 'na',
+                        'validity_months' => $validity_months
+                    ];
+                    continue;
+                }
+                // ═════════════════════════════════════════════════════════════
 
                 // Get employee ID for special handling
                 $employee_id = $employee['employee_id'];
@@ -551,11 +646,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 <head>
     <meta charset="utf-8">
-    <meta name="title" content="Ethiopian Airlines Course Track | MRO Employee Training Status">
-    <meta name="description" content="Official Ethiopian Airlines MRO Course Track portal. Check employee training records, EASA Part 145 compliance, Safety Management System (SMS), EWIS, and qualification expiry status instantly.">
-    <meta name="keywords" content="Ethiopian Airlines Course Track, Ethiopian Airlines MRO, ET Course Track, Ethiopian Aviation Training Status, MRO Training Tracker, EASA Part 145, Fuel Tank Safety, EWIS, SMS MRO, Aviation Training Expiry Status">
 
-    <title>Ethiopian Airlines Course Track | MRO Employee Training Status</title>
+
+
+    <title>Generic Course Track — Check Your Training Status</title>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -583,7 +677,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             <div class="flex items-center gap-3">
                 <img src="./img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
                 <div>
-                    <h1 class="text-2xl font-bold">Ethiopian Airlines Course Track</h1>
+                    <h1 class="text-2xl font-bold">Generic Course Track</h1>
                     <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
                 </div>
             </div>
@@ -935,7 +1029,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                                         echo 'Up to date';
                                                         break;
                                                     case 'na':
-                                                        echo 'Not available';
+                                                        echo 'Not applicable for your section';
                                                         break;
                                                     default:
                                                         echo h((string)($r['status_raw'] ?? ''));
