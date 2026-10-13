@@ -36,7 +36,7 @@ $course_table_map = [
     'course_records_ettpm' => ['ETTPM', 'RSTPM'],
     'course_records_smsmgr' => ['SMSSM', 'STFMAS', 'SMSEM'],
     'course_records_smsop' => ['SMSOP'],
-    'course_records_smsmro' => ['STFMOP'],
+    'course_records_smsmro' => ['STFMOP', 'SMSOP'],
     'course_records_rcat' => ['COM'],
     'course_records_dgr' => ['DG', 'DGR Handling in a Warehouse', 'DGRFAM'],
     'course_records_mnx' => ['MNTX'],
@@ -487,6 +487,7 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
 
 <head>
     <meta charset="utf-8">
+
 
     <title>Import Training Records - Auto Route</title>
     <script src="https://cdn.tailwindcss.com"></script>
