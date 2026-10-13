@@ -51,7 +51,7 @@ function is_always_not_taken_course(string $employee_id, string $course_code): b
     return in_array(strtoupper(trim($course_code)), $always_not_taken_courses);
 }
 
-/* --------- NEW: Cost-center + position eligibility helpers --------- */
+/* --------- Cost-center + position eligibility helpers --------- */
 
 /**
  * Loads the CC → required-course map from cc_course_requirements.
@@ -81,19 +81,55 @@ function is_course_required(array $cc_course_map, ?string $cc, string $course_co
 }
 
 /**
+ * Detects management-level positions.
+ * Any of these keywords (substring, case-insensitive, trimmed):
+ *   MANAGER, MGR, MD, DIR
+ *
+ * Applies to ANY cost center.
+ */
+function is_sms_management_role(?string $position): bool
+{
+    $pos = strtoupper(trim((string)$position));
+    if ($pos === '') return false;
+
+    return (strpos($pos, 'MANAGER') !== false)
+        || (strpos($pos, 'MGR')     !== false)
+        || (strpos($pos, 'MD')      !== false)
+        || (strpos($pos, 'TEAM LEADER')      !== false)
+        || (strpos($pos, 'DIR')     !== false);
+}
+
+/**
  * Position eligibility — mirrors the dashboard rules.
+ *
+ * Special override (applies to ANY cost center):
+ *   • If position contains MANAGER / MGR / MD / DIR:
+ *       - SMS-MGR  → applicable (forced true)
+ *       - SMSMRO   → not applicable (forced false)
  */
 function is_position_eligible(string $course_code, ?string $position): bool
 {
     $code = strtoupper(trim($course_code));
     $pos  = strtoupper(trim((string)$position));
 
+    // ── Management-role override (runs first, applies everywhere) ──
+    $is_management_role = is_sms_management_role($position);
+
+    if ($code === 'SMS-MGR') {
+        if ($is_management_role) return true;   // forced applicable
+        // Fallback: original rule
+        if (strpos($pos, 'MGR') === false) return false;
+    }
+
+    if ($code === 'SMSMRO') {
+        if ($is_management_role) return false;  // forced not applicable
+        return true;                             // otherwise CC mapping decides
+    }
+    // ─────────────────────────────────────────────────────────────
+
     // Positive rules
     if ($code === 'ETTPM') {
         if (!(strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false)) return false;
-    }
-    if ($code === 'SMS-MGR') {
-        if (strpos($pos, 'MGR') === false) return false;
     }
     if ($code === 'IP') {
         if (!(strpos($pos, 'TECHNICIAN III') !== false
@@ -110,13 +146,31 @@ function is_position_eligible(string $course_code, ?string $position): bool
     return true;
 }
 
+/**
+ * Combined eligibility — Option B behavior:
+ *   • SMS-MGR / SMSMRO: position override wins; otherwise CC mapping decides.
+ *   • All other courses: CC mapping AND position rules must both pass.
+ */
 function is_employee_eligible_for_course(array $cc_course_map, ?string $cc, string $course_code, ?string $position): bool
 {
+    $code = strtoupper(trim($course_code));
+    $is_management_role = is_sms_management_role($position);
+
+    // ── SMS-MGR / SMSMRO — position override runs FIRST ──
+    if ($code === 'SMS-MGR' && $is_management_role) {
+        return true;   // forced applicable (bypasses CC map)
+    }
+    if ($code === 'SMSMRO' && $is_management_role) {
+        return false;  // forced not applicable (bypasses CC map)
+    }
+    // ─────────────────────────────────────────────────────
+
+    // Fall back to CC map + position rules
     return is_course_required($cc_course_map, $cc, $course_code)
         && is_position_eligible($course_code, $position);
 }
 
-/* --------- END NEW helpers --------- */
+/* --------- END helpers --------- */
 
 function safe_table(string $t): bool
 {
@@ -305,10 +359,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                 $validity_months = (int)$c['validity_months'];
                 $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
 
-                // ═════════════════════════════════════════════════════════════
-                // NEW: Not-Applicable gate — checks CC map + position rules.
-                // Runs BEFORE the always_not_taken special case.
-                // ═════════════════════════════════════════════════════════════
+                // Not-Applicable gate — checks CC map + position rules
                 $cc  = $employee['cost_center'] ?? '';
                 $pos = $employee['position'] ?? '';
 
@@ -326,7 +377,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                     ];
                     continue;
                 }
-                // ═════════════════════════════════════════════════════════════
 
                 // Get employee ID for special handling
                 $employee_id = $employee['employee_id'];
