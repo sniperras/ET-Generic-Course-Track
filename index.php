@@ -1050,7 +1050,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     <footer class="bg-blue-950 text-gray-300 py-3 flex-shrink-0">
         <div class="w-full max-w-7xl mx-auto px-5 text-center">
             <p class="text-xs">
-                © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
+                © 2026 <span class="font-semibold text-white">ET AirTV CourseTrack</span>. All rights reserved.
             </p>
             <p class="text-[11px] mt-1 opacity-75">
                 MRO Course Track System • Developed by NATNAEL BIZUNEH
