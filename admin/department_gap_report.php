@@ -6,6 +6,8 @@
 // - Uses cc_course_requirements + position rules (same as dashboard)
 // - Dynamic department columns (from cost_center_departments)
 // - Clickable cells/rows/columns/totals → CSV export
+// - Gap type filter (All / Initial / Expired / To-be)
+// - Staff category filter (All / Technical / Non-Technical)
 // - 5-minute file cache with Force Refresh button
 // =================================================================
 
@@ -18,13 +20,16 @@ if (!isGuest()) {
     requireAdmin();
 }
 
-
 // -----------------------------------------------------------------
 // CONFIG
 // -----------------------------------------------------------------
 $CACHE_TTL = 300;
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 const FOREVER_THRESHOLD = 999999;
+
+// Staff category groupings
+$TECHNICAL_DEPTS     = ['AEP', 'BMT', 'CMT', 'EMT', 'LMT'];
+$NON_TECHNICAL_DEPTS = ['MRO HR', 'MSM', 'PSCM', 'MRO QA'];
 
 // -----------------------------------------------------------------
 // Helpers
@@ -86,20 +91,43 @@ else                                  $to_be_days = (int)($_SESSION['dept_gap_to
 $_SESSION['dept_gap_to_be_days'] = $to_be_days;
 
 // -----------------------------------------------------------------
+// Gap type filter (All / Initial / Expired / To-be)
+// -----------------------------------------------------------------
+$gap_filter = $_GET['gap_type'] ?? ($_SESSION['dept_gap_filter'] ?? 'all');
+if (!in_array($gap_filter, ['all', 'initial', 'expired', 'tobe'], true)) $gap_filter = 'all';
+$_SESSION['dept_gap_filter'] = $gap_filter;
+
+// -----------------------------------------------------------------
+// Staff category filter (All / Technical / Non-Technical)
+// Default = technical
+// -----------------------------------------------------------------
+$staff_filter = $_GET['staff_cat'] ?? ($_SESSION['dept_gap_staff'] ?? 'technical');
+if (!in_array($staff_filter, ['all', 'technical', 'non_technical'], true)) $staff_filter = 'technical';
+$_SESSION['dept_gap_staff'] = $staff_filter;
+
+// -----------------------------------------------------------------
 // Load CC → Department map
 // -----------------------------------------------------------------
 $cc_dept_map = [];
-$departments = [];
+$all_departments = [];
 try {
     $rows = $pdo->query("SELECT cost_center, department FROM cost_center_departments")->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rows as $r) {
         $cc_dept_map[trim($r['cost_center'])] = trim($r['department']);
     }
-    $departments = array_values(array_unique(array_values($cc_dept_map)));
-    sort($departments);
+    $all_departments = array_values(array_unique(array_values($cc_dept_map)));
+    sort($all_departments);
 } catch (Exception $e) {
     $cc_dept_map = [];
-    $departments = [];
+    $all_departments = [];
+}
+
+// Apply staff filter
+$departments = [];
+foreach ($all_departments as $d) {
+    if ($staff_filter === 'technical' && !in_array($d, $GLOBALS['TECHNICAL_DEPTS'], true)) continue;
+    if ($staff_filter === 'non_technical' && !in_array($d, $GLOBALS['NON_TECHNICAL_DEPTS'], true)) continue;
+    $departments[] = $d;
 }
 
 // -----------------------------------------------------------------
@@ -128,7 +156,7 @@ $courses = $pdo->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // -----------------------------------------------------------------
-// Load active employees
+// Load active employees (filtered by department category)
 // -----------------------------------------------------------------
 $employees = [];
 $unmapped_ccs = [];
@@ -139,8 +167,14 @@ foreach ($pdo->query("SELECT employee_id, full_name, position, cost_center FROM 
         $unmapped_ccs[$cc] = ($unmapped_ccs[$cc] ?? 0) + 1;
         continue;
     }
+    $dept = $cc_dept_map[$cc];
+
+    // Apply staff filter at employee level so counts reflect only selected category
+    if ($staff_filter === 'technical' && !in_array($dept, $GLOBALS['TECHNICAL_DEPTS'], true)) continue;
+    if ($staff_filter === 'non_technical' && !in_array($dept, $GLOBALS['NON_TECHNICAL_DEPTS'], true)) continue;
+
     $e['cost_center'] = $cc;
-    $e['department']  = $cc_dept_map[$cc];
+    $e['department']  = $dept;
     $employees[] = $e;
 }
 
@@ -149,12 +183,12 @@ foreach ($pdo->query("SELECT employee_id, full_name, position, cost_center FROM 
 // =================================================================
 if (isset($_GET['export'])) {
 
-    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days);
+    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments);
 
     $scope = $_GET['export'];
     $code  = $_GET['course'] ?? '';
     $dept  = $_GET['dept']   ?? '';
-    $type  = $_GET['type']   ?? '';   // NEW: for summary rows
+    $type  = $_GET['type']   ?? '';
 
     $filename_parts = ['dept_gap'];
     $rows_to_export = [];
@@ -172,57 +206,60 @@ if (isset($_GET['export'])) {
         'Gap Type'
     ];
 
+    // Helper: does a row ($r) match the active gap_type filter?
+    $matches_gap_filter = function ($gapTypeStr) use ($gap_filter) {
+        if ($gap_filter === 'all') return true;
+        $lc = strtolower($gapTypeStr);
+        if ($gap_filter === 'initial') return $lc === 'initial';
+        if ($gap_filter === 'expired') return $lc === 'expired';
+        if ($gap_filter === 'tobe')    return in_array($lc, ['tobe', 'to-be', 'to_be', 'to be expired'], true);
+        return true;
+    };
+
     if ($scope === 'cell' && $code !== '' && $dept !== '') {
-        // One course × one department
         $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $code);
         $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $dept);
-        $rows_to_export = $matrix['drilldown'][$code][$dept] ?? [];
+        foreach (($matrix['drilldown'][$code][$dept] ?? []) as $r) {
+            if ($matches_gap_filter($r[9])) $rows_to_export[] = $r;
+        }
     } elseif ($scope === 'course' && $code !== '') {
-        // Whole course across all departments
         $filename_parts[] = 'course';
         $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $code);
         foreach ($departments as $d) {
             foreach (($matrix['drilldown'][$code][$d] ?? []) as $r) {
-                $rows_to_export[] = $r;
+                if ($matches_gap_filter($r[9])) $rows_to_export[] = $r;
             }
         }
     } elseif ($scope === 'dept' && $dept !== '') {
-        // Whole department across all courses
         $filename_parts[] = 'dept';
         $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $dept);
         foreach ($courses as $c) {
             $cc = trim($c['course_code']);
             foreach (($matrix['drilldown'][$cc][$dept] ?? []) as $r) {
-                $rows_to_export[] = $r;
+                if ($matches_gap_filter($r[9])) $rows_to_export[] = $r;
             }
         }
     } elseif ($scope === 'total') {
-        // Everything (all rows across all depts)
         $filename_parts[] = 'all';
         foreach ($courses as $c) {
             $cc = trim($c['course_code']);
             foreach ($departments as $d) {
                 foreach (($matrix['drilldown'][$cc][$d] ?? []) as $r) {
-                    $rows_to_export[] = $r;
+                    if ($matches_gap_filter($r[9])) $rows_to_export[] = $r;
                 }
             }
         }
     } elseif ($scope === 'summary' && $type !== '') {
-        // NEW: summary rows — Expired / Initial / To-be / Total GAP
         $filename_parts[] = 'summary';
         $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $type);
         if ($dept !== '') {
             $filename_parts[] = preg_replace('/[^A-Za-z0-9_]/', '_', $dept);
         }
-
-        // Which depts to include?
         $target_depts = ($dept !== '') ? [$dept] : $departments;
-
         foreach ($courses as $c) {
             $cc = trim($c['course_code']);
             foreach ($target_depts as $d) {
                 foreach (($matrix['drilldown'][$cc][$d] ?? []) as $r) {
-                    // $r[9] is the "Gap Type" (Expired / Tobe / Initial)
                     $gap_type_lc = strtolower($r[9]);
                     $include = false;
                     switch ($type) {
@@ -230,21 +267,20 @@ if (isset($_GET['export'])) {
                             $include = ($gap_type_lc === 'expired');
                             break;
                         case 'tobe':
-                            $include = ($gap_type_lc === 'tobe');
+                            $include = in_array($gap_type_lc, ['tobe', 'to-be', 'to_be'], true);
                             break;
                         case 'initial':
                             $include = ($gap_type_lc === 'initial');
                             break;
                         case 'gap_active':
-                            // Expired + Initial
                             $include = in_array($gap_type_lc, ['expired', 'initial'], true);
                             break;
                         case 'gap_total':
-                            // Expired + Initial + To-be
-                            $include = in_array($gap_type_lc, ['expired', 'initial', 'tobe'], true);
+                            $include = in_array($gap_type_lc, ['expired', 'initial', 'tobe', 'to-be', 'to_be'], true);
                             break;
                     }
-                    if ($include) $rows_to_export[] = $r;
+                    // Also honour the active gap_type filter
+                    if ($include && $matches_gap_filter($r[9])) $rows_to_export[] = $r;
                 }
             }
         }
@@ -254,12 +290,14 @@ if (isset($_GET['export'])) {
         exit;
     }
 
-    // Sort for stable output: course, dept, emp
     usort($rows_to_export, function ($a, $b) {
         $cmp = strcmp($a[0] . '|' . $a[5], $b[0] . '|' . $b[5]);
         if ($cmp === 0) $cmp = strcmp($a[2], $b[2]);
         return $cmp;
     });
+
+    if ($gap_filter !== 'all') $filename_parts[] = $gap_filter;
+    if ($staff_filter !== 'all') $filename_parts[] = $staff_filter;
 
     $filename = implode('_', $filename_parts) . '_' . date('Ymd_His') . '.csv';
 
@@ -269,7 +307,7 @@ if (isset($_GET['export'])) {
     header('Content-Disposition: attachment; filename="' . $filename . '"');
 
     $out = fopen('php://output', 'w');
-    fwrite($out, "\xEF\xBB\xBF"); // BOM
+    fwrite($out, "\xEF\xBB\xBF");
     fputcsv($out, $headers);
     foreach ($rows_to_export as $row) {
         fputcsv($out, $row);
@@ -281,7 +319,7 @@ if (isset($_GET['export'])) {
 // =================================================================
 // BUILD MATRIX
 // =================================================================
-function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
+function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments)
 {
     $matrix = [
         'gap'        => [],
@@ -333,7 +371,7 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
             if ($d !== null) $required_ccs_by_dept[$d] = true;
         }
 
-        foreach ($GLOBALS['departments'] as $dept) {
+        foreach ($departments as $dept) {
             if (!isset($required_ccs_by_dept[$dept])) {
                 $matrix['na'][$course_code][$dept] = true;
                 $matrix['gap'][$course_code][$dept]     = 0;
@@ -426,9 +464,9 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days)
 }
 
 // =================================================================
-// CACHE
+// CACHE (key includes both filters)
 // =================================================================
-$cache_key  = "dept_gap_v1_tobed_{$to_be_days}";
+$cache_key  = "dept_gap_v2_tobed_{$to_be_days}_gap_{$gap_filter}_staff_{$staff_filter}";
 $cache_file = sys_get_temp_dir() . "/gct_{$cache_key}.cache";
 
 if ($force_refresh && file_exists($cache_file)) {
@@ -443,19 +481,27 @@ if ($use_cache) {
     $last_cache_update = date('H:i:s', filemtime($cache_file));
     $next_cache_update = date('H:i:s', time() + ($CACHE_TTL - (time() - filemtime($cache_file))));
 } else {
-    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days);
+    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments);
     file_put_contents($cache_file, serialize(['matrix' => $matrix]));
     $last_cache_update = 'Just now';
     $next_cache_update = date('H:i:s', time() + $CACHE_TTL);
 }
 
 // =================================================================
-// PIE CHART DATA
+// PIE CHART DATA — reflects the active gap type filter
 // =================================================================
 $pie_labels = [];
 $pie_values = [];
 foreach ($departments as $d) {
-    $val = $matrix['dept_totals_gap'][$d] ?? 0;
+    if ($gap_filter === 'expired') {
+        $val = $matrix['dept_totals_expired'][$d] ?? 0;
+    } elseif ($gap_filter === 'initial') {
+        $val = $matrix['dept_totals_initial'][$d] ?? 0;
+    } elseif ($gap_filter === 'tobe') {
+        $val = $matrix['dept_totals_tobe'][$d] ?? 0;
+    } else {
+        $val = $matrix['dept_totals_gap'][$d] ?? 0;
+    }
     if ($val > 0) {
         $pie_labels[] = $d;
         $pie_values[] = $val;
@@ -469,6 +515,8 @@ $js_pie_values = json_encode($pie_values);
 
 <head>
     <meta charset="utf-8">
+
+
     <title>Department Training GAP Report</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -570,7 +618,6 @@ $js_pie_values = json_encode($pie_values);
             background: #e2e8f0 !important;
         }
 
-        /* NEW: summary rows — clickable cells, distinct hover */
         .summary-row td {
             background: #f8fafc !important;
             font-weight: 700;
@@ -639,6 +686,19 @@ $js_pie_values = json_encode($pie_values);
             border: 1px solid #e5e7eb;
             border-radius: 8px;
         }
+
+        /* Pill badge for active filters */
+        .filter-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 3px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
     </style>
 </head>
 
@@ -654,9 +714,11 @@ $js_pie_values = json_encode($pie_values);
                     Initial (not taken) is shown separately.
                 </p>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 flex-wrap">
                 <form method="GET" class="flex items-center gap-2" id="toBeForm">
                     <input type="hidden" name="page" value="department_gap_report">
+                    <input type="hidden" name="gap_type" value="<?= htmlspecialchars($gap_filter) ?>">
+                    <input type="hidden" name="staff_cat" value="<?= htmlspecialchars($staff_filter) ?>">
                     <label class="text-sm text-gray-600">To-be window (days):</label>
                     <input type="number" name="to_be_days" min="0"
                         value="<?= htmlspecialchars($to_be_days) ?>"
@@ -666,6 +728,8 @@ $js_pie_values = json_encode($pie_values);
                 <form method="POST" style="display:inline;">
                     <input type="hidden" name="force_refresh" value="1">
                     <input type="hidden" name="to_be_days" value="<?= htmlspecialchars($to_be_days) ?>">
+                    <input type="hidden" name="gap_type" value="<?= htmlspecialchars($gap_filter) ?>">
+                    <input type="hidden" name="staff_cat" value="<?= htmlspecialchars($staff_filter) ?>">
                     <button type="submit"
                         class="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1 rounded text-sm font-medium"
                         onclick="return confirm('Force refresh from the database?');">
@@ -696,50 +760,130 @@ $js_pie_values = json_encode($pie_values);
             </div>
         <?php endif; ?>
 
+        <!-- ══════════════════════════════════════════════════════════════
+             PIE CHART + SUMMARY  (Staff Category dropdown lives here)
+             ══════════════════════════════════════════════════════════════ -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <div class="bg-white p-5 rounded-xl shadow lg:col-span-1">
-                <h3 class="font-bold mb-3 text-gray-700">GAP by Department</h3>
+                <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h3 class="font-bold text-gray-700">GAP by Department</h3>
+                    <form method="GET" class="flex items-center gap-2">
+                        <input type="hidden" name="page" value="department_gap_report">
+                        <input type="hidden" name="to_be_days" value="<?= htmlspecialchars($to_be_days) ?>">
+                        <input type="hidden" name="gap_type" value="<?= htmlspecialchars($gap_filter) ?>">
+                        <select name="staff_cat" onchange="this.form.submit()"
+                            class="text-xs border border-gray-300 rounded px-2 py-1 bg-white">
+                            <option value="all" <?= $staff_filter === 'all' ? 'selected' : '' ?>>All Staff</option>
+                            <option value="technical" <?= $staff_filter === 'technical' ? 'selected' : '' ?>>Technical</option>
+                            <option value="non_technical" <?= $staff_filter === 'non_technical' ? 'selected' : '' ?>>Non-Technical</option>
+                        </select>
+                    </form>
+                </div>
+
+                <?php if ($staff_filter !== 'all'): ?>
+                    <div class="mb-2 text-center">
+                        <span class="filter-pill">
+                            <?= $staff_filter === 'technical' ? '🛠️ Technical' : '📋 Non-Technical' ?>
+                            <span class="text-gray-400">•</span>
+                            <?= count($departments) ?> dept<?= count($departments) != 1 ? 's' : '' ?>
+                        </span>
+                    </div>
+                <?php endif; ?>
+
                 <?php if (empty($pie_values)): ?>
-                    <div class="text-center text-gray-400 py-8 text-sm">No GAP data</div>
+                    <div class="text-center text-gray-400 py-8 text-sm">No data for selected filters</div>
                 <?php else: ?>
                     <canvas id="deptPieChart" style="max-height: 320px;"></canvas>
                 <?php endif; ?>
             </div>
 
             <div class="bg-white p-5 rounded-xl shadow lg:col-span-2">
-                <h3 class="font-bold mb-3 text-gray-700">Summary</h3>
+                <h3 class="font-bold mb-3 text-gray-700">
+                    Summary
+                    <?php if ($gap_filter !== 'all'): ?>
+                        — showing <span class="text-blue-700"><?= htmlspecialchars(ucfirst($gap_filter)) ?></span> only
+                    <?php endif; ?>
+                    <?php if ($staff_filter !== 'all'): ?>
+                        — <span class="text-blue-700"><?= $staff_filter === 'technical' ? 'Technical' : 'Non-Technical' ?></span>
+                    <?php endif; ?>
+                </h3>
+
+                <?php
+                // Summary cards highlight the active filter's metric
+                $highlight_expired = ($gap_filter === 'expired');
+                $highlight_tobe    = ($gap_filter === 'tobe');
+                $highlight_initial = ($gap_filter === 'initial');
+                $highlight_gap     = ($gap_filter === 'all');
+                ?>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div class="bg-red-50 border border-red-200 rounded p-3">
+                    <div class="bg-red-50 border <?= $highlight_expired ? 'ring-2 ring-red-400' : 'border-red-200' ?> rounded p-3">
                         <div class="text-xs uppercase text-red-700">Expired</div>
                         <div class="text-2xl font-bold text-red-700"><?= number_format($matrix['grand_expired']) ?></div>
                     </div>
-                    <div class="bg-amber-50 border border-amber-200 rounded p-3">
+                    <div class="bg-amber-50 border <?= $highlight_tobe ? 'ring-2 ring-amber-400' : 'border-amber-200' ?> rounded p-3">
                         <div class="text-xs uppercase text-amber-700">To-be expired</div>
                         <div class="text-2xl font-bold text-amber-700"><?= number_format($matrix['grand_tobe']) ?></div>
                     </div>
-                    <div class="bg-yellow-50 border border-yellow-200 rounded p-3">
+                    <div class="bg-yellow-50 border <?= $highlight_initial ? 'ring-2 ring-yellow-400' : 'border-yellow-200' ?> rounded p-3">
                         <div class="text-xs uppercase text-yellow-700">Initial (not taken)</div>
                         <div class="text-2xl font-bold text-yellow-700"><?= number_format($matrix['grand_initial']) ?></div>
                     </div>
-                    <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                    <!-- <div class="bg-blue-50 border <?= $highlight_gap ? 'ring-2 ring-blue-400' : 'border-blue-200' ?> rounded p-3">
                         <div class="text-xs uppercase text-blue-700">Total GAP</div>
                         <div class="text-2xl font-bold text-blue-700"><?= number_format($matrix['grand_gap']) ?></div>
-                    </div>
+                    </div> -->
                 </div>
-                <p class="text-xs text-gray-500 mt-3">
+                <!-- <p class="text-xs text-gray-500 mt-3">
                     Total GAP = Expired + To-be. Initial is tracked separately.
-                </p>
+                </p> -->
             </div>
         </div>
 
-        <!-- Matrix table -->
+        <!-- ══════════════════════════════════════════════════════════════
+             MATRIX TABLE (Gap Type dropdown lives in its header)
+             ══════════════════════════════════════════════════════════════ -->
         <div class="bg-white rounded-xl shadow p-4">
             <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <h3 class="font-bold text-gray-700">Course × Department — Training GAP</h3>
-                <a href="?page=department_gap_report&export=total&to_be_days=<?= $to_be_days ?>"
-                    class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm font-medium">
-                    📥 Export All (GAP)
-                </a>
+                <h3 class="font-bold text-gray-700">
+                    Course × Department —
+                    <?php
+                    switch ($gap_filter) {
+                        case 'expired':
+                            echo '<span class="text-red-700">Expired</span>';
+                            break;
+                        case 'initial':
+                            echo '<span class="text-yellow-700">Initial (not taken)</span>';
+                            break;
+                        case 'tobe':
+                            echo '<span class="text-amber-700">To-be expired</span>';
+                            break;
+                        default:
+                            echo '<span class="text-blue-700">Training GAP</span>';
+                    }
+                    ?>
+                </h3>
+
+                <div class="flex items-center gap-3 flex-wrap">
+                    <!-- Gap Type Filter -->
+                    <form method="GET" class="flex items-center gap-2">
+                        <input type="hidden" name="page" value="department_gap_report">
+                        <input type="hidden" name="to_be_days" value="<?= htmlspecialchars($to_be_days) ?>">
+                        <input type="hidden" name="staff_cat" value="<?= htmlspecialchars($staff_filter) ?>">
+                        <label class="text-sm text-gray-600">Show:</label>
+                        <select name="gap_type" onchange="this.form.submit()"
+                            class="text-sm border border-gray-300 rounded px-2 py-1 bg-white">
+                            <option value="all" <?= $gap_filter === 'all' ? 'selected' : '' ?>>All (GAP = Expired + To-be)</option>
+                            <option value="expired" <?= $gap_filter === 'expired' ? 'selected' : '' ?>>Expired only</option>
+                            <option value="initial" <?= $gap_filter === 'initial' ? 'selected' : '' ?>>Initial only (not taken)</option>
+                            <option value="tobe" <?= $gap_filter === 'tobe' ? 'selected' : '' ?>>To-be expired only</option>
+                        </select>
+                    </form>
+
+                    <a href="?page=department_gap_report&export=total&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>"
+                        class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm font-medium">
+                        📥 Export Filtered
+                    </a>
+                </div>
             </div>
 
             <div class="matrix-wrap">
@@ -749,23 +893,46 @@ $js_pie_values = json_encode($pie_values);
                             <th class="course-col">Course</th>
                             <?php foreach ($departments as $d): ?>
                                 <th class="dept-header clickable-header"
-                                    onclick="location.href='?page=department_gap_report&export=dept&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                    onclick="location.href='?page=department_gap_report&export=dept&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export all <?= htmlspecialchars($d) ?> rows">
                                     Dir. <?= htmlspecialchars($d) ?>
                                 </th>
                             <?php endforeach; ?>
                             <th class="total-col clickable-header"
                                 style="color: black !important;"
-                                onclick="location.href='?page=department_gap_report&export=total&to_be_days=<?= $to_be_days ?>'"
-                                title="Click to export all rows">Total GAP</th>
+                                onclick="location.href='?page=department_gap_report&export=total&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
+                                title="Click to export all rows">
+                                <?php
+                                switch ($gap_filter) {
+                                    case 'expired':
+                                        echo 'Total Expired';
+                                        break;
+                                    case 'initial':
+                                        echo 'Total Initial';
+                                        break;
+                                    case 'tobe':
+                                        echo 'Total To-be';
+                                        break;
+                                    default:
+                                        echo 'Total GAP';
+                                }
+                                ?>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
                         <!-- Course rows -->
                         <?php foreach ($courses as $c):
                             $code = trim($c['course_code']);
-                            $row_gap = 0;
-                            foreach ($departments as $d) $row_gap += $matrix['gap'][$code][$d] ?? 0;
+
+                            // Row total reflects active filter
+                            $row_total = 0;
+                            foreach ($departments as $d) {
+                                if ($gap_filter === 'expired')      $row_total += $matrix['expired'][$code][$d] ?? 0;
+                                elseif ($gap_filter === 'initial')  $row_total += $matrix['initial'][$code][$d] ?? 0;
+                                elseif ($gap_filter === 'tobe')     $row_total += $matrix['tobe'][$code][$d] ?? 0;
+                                else                                $row_total += $matrix['gap'][$code][$d] ?? 0;
+                            }
                         ?>
                             <tr>
                                 <td class="course-col"><?= htmlspecialchars($code) ?></td>
@@ -775,87 +942,98 @@ $js_pie_values = json_encode($pie_values);
                                     $exp   = $matrix['expired'][$code][$d] ?? 0;
                                     $tobe  = $matrix['tobe'][$code][$d] ?? 0;
                                     $ini   = $matrix['initial'][$code][$d] ?? 0;
+
+                                    // Cell value reflects active filter
+                                    if ($gap_filter === 'expired')      $cell_val = $exp;
+                                    elseif ($gap_filter === 'initial')  $cell_val = $ini;
+                                    elseif ($gap_filter === 'tobe')     $cell_val = $tobe;
+                                    else                                $cell_val = $gap;
+
+                                    // Cell class per type
+                                    if ($gap_filter === 'initial')      $cell_class = $cell_val > 0 ? 'ini-cell' : 'zero-cell';
+                                    elseif ($gap_filter === 'tobe')     $cell_class = $cell_val > 0 ? 'tobe-cell' : 'zero-cell';
+                                    else                                $cell_class = $cell_val > 0 ? 'gap-cell' : 'zero-cell';
                                 ?>
                                     <?php if ($is_na): ?>
                                         <td class="na-cell">N/A</td>
                                     <?php else: ?>
-                                        <td class="cell-clickable <?= $gap > 0 ? 'gap-cell' : 'zero-cell' ?>"
-                                            onclick="location.href='?page=department_gap_report&export=cell&course=<?= urlencode($code) ?>&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                        <td class="cell-clickable <?= $cell_class ?>"
+                                            onclick="location.href='?page=department_gap_report&export=cell&course=<?= urlencode($code) ?>&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                             title="Expired: <?= $exp ?> | To-be: <?= $tobe ?> | Initial: <?= $ini ?> (click to export)">
-                                            <?= $gap ?>
+                                            <?= $cell_val ?>
                                         </td>
                                     <?php endif; ?>
                                 <?php endforeach; ?>
                                 <td class="total-col cell-clickable"
-                                    onclick="location.href='?page=department_gap_report&export=course&course=<?= urlencode($code) ?>&to_be_days=<?= $to_be_days ?>'"
+                                    onclick="location.href='?page=department_gap_report&export=course&course=<?= urlencode($code) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export all <?= htmlspecialchars($code) ?> rows">
-                                    <?= $row_gap ?>
+                                    <?= $row_total ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
 
-                        <!-- ============================================================
-                             SUMMARY ROWS — now fully clickable
-                             Every cell, the row label, and the grand-total cell export.
-                             ============================================================ -->
+                        <!-- ─────────────────────────────────────────────
+                             SUMMARY ROWS — always shown; hover export
+                             respects the active gap_type filter
+                             ───────────────────────────────────────────── -->
 
-                        <!-- Section A: Expired -->
+                        <!-- Expired -->
                         <tr class="summary-row expired-row">
                             <td class="course-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=expired&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=expired&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export ALL expired rows across all departments">
                                 Expired
                             </td>
                             <?php foreach ($departments as $d): ?>
-                                <td onclick="location.href='?page=department_gap_report&export=summary&type=expired&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=expired&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export expired rows for <?= htmlspecialchars($d) ?>">
                                     <?= number_format($matrix['dept_totals_expired'][$d] ?? 0) ?>
                                 </td>
                             <?php endforeach; ?>
                             <td class="total-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=expired&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=expired&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export all expired rows">
                                 <?= number_format($matrix['grand_expired']) ?>
                             </td>
                         </tr>
 
-                        <!-- Section A: Initial training not taken -->
+                        <!-- Initial training not taken -->
                         <tr class="summary-row initial-row">
                             <td class="course-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=initial&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=initial&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export ALL initial rows across all departments">
                                 Initial training not taken
                             </td>
                             <?php foreach ($departments as $d): ?>
-                                <td onclick="location.href='?page=department_gap_report&export=summary&type=initial&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=initial&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export initial rows for <?= htmlspecialchars($d) ?>">
                                     <?= number_format($matrix['dept_totals_initial'][$d] ?? 0) ?>
                                 </td>
                             <?php endforeach; ?>
                             <td class="total-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=initial&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=initial&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export all initial rows">
                                 <?= number_format($matrix['grand_initial']) ?>
                             </td>
                         </tr>
 
-                        <!-- Section A: Total GAP [active employees] -->
+                        <!-- Total GAP [active employees] -->
                         <tr class="summary-row totalgap-row">
                             <td class="course-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export ALL expired + initial rows">
                                 Total GAP [active employees]
                             </td>
                             <?php foreach ($departments as $d):
                                 $v = ($matrix['dept_totals_expired'][$d] ?? 0) + ($matrix['dept_totals_initial'][$d] ?? 0);
                             ?>
-                                <td onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export expired + initial rows for <?= htmlspecialchars($d) ?>">
                                     <?= number_format($v) ?>
                                 </td>
                             <?php endforeach; ?>
                             <td class="total-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export all expired + initial rows">
                                 <?= number_format($matrix['grand_expired'] + $matrix['grand_initial']) ?>
                             </td>
@@ -865,30 +1043,30 @@ $js_pie_values = json_encode($pie_values);
                             <td colspan="<?= count($departments) + 2 ?>" style="height:12px; background:transparent; border:none;"></td>
                         </tr>
 
-                        <!-- Section B: To be expired -->
+                        <!-- To be expired -->
                         <tr class="summary-row tobe-row">
                             <td class="course-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=tobe&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=tobe&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export ALL to-be-expired rows across all departments">
                                 To be expired
                             </td>
                             <?php foreach ($departments as $d): ?>
-                                <td onclick="location.href='?page=department_gap_report&export=summary&type=tobe&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=tobe&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export to-be-expired rows for <?= htmlspecialchars($d) ?>">
                                     <?= number_format($matrix['dept_totals_tobe'][$d] ?? 0) ?>
                                 </td>
                             <?php endforeach; ?>
                             <td class="total-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=tobe&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=tobe&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export all to-be-expired rows">
                                 <?= number_format($matrix['grand_tobe']) ?>
                             </td>
                         </tr>
 
-                        <!-- Section B: Total GAP -->
+                        <!-- Total GAP -->
                         <tr class="summary-row totalgap-row">
                             <td class="course-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export ALL expired + initial + to-be rows">
                                 Total GAP
                             </td>
@@ -897,13 +1075,13 @@ $js_pie_values = json_encode($pie_values);
                                     + ($matrix['dept_totals_initial'][$d] ?? 0)
                                     + ($matrix['dept_totals_tobe'][$d] ?? 0);
                             ?>
-                                <td onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>'"
+                                <td onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&dept=<?= urlencode($d) ?>&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export expired + initial + to-be rows for <?= htmlspecialchars($d) ?>">
                                     <?= number_format($v) ?>
                                 </td>
                             <?php endforeach; ?>
                             <td class="total-col"
-                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&to_be_days=<?= $to_be_days ?>'"
+                                onclick="location.href='?page=department_gap_report&export=summary&type=gap_total&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                 title="Click to export all expired + initial + to-be rows">
                                 <?= number_format($matrix['grand_expired'] + $matrix['grand_initial'] + $matrix['grand_tobe']) ?>
                             </td>
@@ -916,6 +1094,8 @@ $js_pie_values = json_encode($pie_values);
                 <strong>Tip:</strong> Click any <em>cell</em>, <em>row total</em>, <em>column header</em>, or the <em>grand total</em> button to export a CSV of exactly that scope.
                 <br>
                 Summary rows are also clickable — clicking any number in those rows exports a CSV of exactly the matching employees.
+                <br>
+                Both dropdowns persist in the URL, so bookmarks/exports will keep the same filters.
             </p>
         </div>
 
@@ -924,6 +1104,9 @@ $js_pie_values = json_encode($pie_values);
     <script>
         const pieLabels = <?= $js_pie_labels ?>;
         const pieValues = <?= $js_pie_values ?>;
+        const gapFilter = <?= json_encode($gap_filter) ?>;
+        const staffFilter = <?= json_encode($staff_filter) ?>;
+        const toBeDays = <?= (int)$to_be_days ?>;
 
         if (pieLabels.length > 0) {
             new Chart(document.getElementById('deptPieChart').getContext('2d'), {
@@ -963,7 +1146,7 @@ $js_pie_values = json_encode($pie_values);
                     onClick(e, items) {
                         if (!items.length) return;
                         const dept = pieLabels[items[0].index];
-                        window.location.href = `?page=department_gap_report&export=dept&dept=${encodeURIComponent(dept)}&to_be_days=<?= $to_be_days ?>`;
+                        window.location.href = `?page=department_gap_report&export=dept&dept=${encodeURIComponent(dept)}&to_be_days=${toBeDays}&gap_type=${encodeURIComponent(gapFilter)}&staff_cat=${encodeURIComponent(staffFilter)}`;
                     }
                 }
             });
