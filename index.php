@@ -82,10 +82,8 @@ function is_course_required(array $cc_course_map, ?string $cc, string $course_co
 
 /**
  * Detects management-level positions.
- * Any of these keywords (substring, case-insensitive, trimmed):
- *   MANAGER, MGR, MD, DIR
- *
- * Applies to ANY cost center.
+ * Keywords: MANAGER, MGR, MD, DIR
+ * NOTE: removed TEAM LEADER — it's not management-level.
  */
 function is_sms_management_role(?string $position): bool
 {
@@ -95,82 +93,74 @@ function is_sms_management_role(?string $position): bool
     return (strpos($pos, 'MANAGER') !== false)
         || (strpos($pos, 'MGR')     !== false)
         || (strpos($pos, 'MD')      !== false)
-        || (strpos($pos, 'TEAM LEADER')      !== false)
         || (strpos($pos, 'DIR')     !== false);
 }
 
 /**
- * Position eligibility — mirrors the dashboard rules.
- *
- * Special override (applies to ANY cost center):
- *   • If position contains MANAGER / MGR / MD / DIR:
- *       - SMS-MGR  → applicable (forced true)
- *       - SMSMRO   → not applicable (forced false)
+ * Position eligibility — position rules ONLY (no CC consideration).
+ * Return true = position allows this course.
+ * Return false = position excludes this course.
  */
 function is_position_eligible(string $course_code, ?string $position): bool
 {
     $code = strtoupper(trim($course_code));
     $pos  = strtoupper(trim((string)$position));
 
-    // ── Management-role override (runs first, applies everywhere) ──
-    $is_management_role = is_sms_management_role($position);
+    $is_mgmt = is_sms_management_role($position);
 
-    if ($code === 'SMS-MGR') {
-        if ($is_management_role) return true;   // forced applicable
-        // Fallback: original rule
-        if (strpos($pos, 'MGR') === false) return false;
-    }
+    // ── SMS-MGR / SMSMRO — pure position rules ──
+    if ($code === 'SMS-MGR')  return $is_mgmt;        // only management
+    if ($code === 'SMSMRO')   return !$is_mgmt;       // only non-management
 
-    if ($code === 'SMSMRO') {
-        if ($is_management_role) return false;  // forced not applicable
-        return true;                             // otherwise CC mapping decides
-    }
-    // ─────────────────────────────────────────────────────────────
-
-    // Positive rules
+    // ── ETTPM — only Team Leader or Manager ──
     if ($code === 'ETTPM') {
-        if (!(strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false)) return false;
+        return (strpos($pos, 'TEAM LEADER') !== false)
+            || (strpos($pos, 'DIR') !== false)
+            || (strpos($pos, 'MGR') !== false);
     }
+
+
+    // ── IP — only certain technical roles ──
     if ($code === 'IP') {
-        if (!(strpos($pos, 'TECHNICIAN III') !== false
-            || strpos($pos, 'TECHNICIAN IV')  !== false
-            || strpos($pos, 'TEAM LEADER')    !== false)) return false;
+        return (strpos($pos, 'TECHNICIAN III') !== false)
+            || (strpos($pos, 'TECHNICIAN IV')  !== false)
+            || (strpos($pos, 'TEAM LEADER')    !== false);
     }
-    // Negative rules
+
+    // ── MEL — not for mechanics ──
     if ($code === 'MEL') {
         if (strpos($pos, 'MECHANIC') !== false) return false;
     }
+
+    // ── DGR / RCAT — not for Team Leaders or Managers ──
     if ($code === 'DGR' || $code === 'RCAT') {
         if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false) return false;
     }
+
     return true;
 }
 
 /**
- * Combined eligibility — Option B behavior:
- *   • SMS-MGR / SMSMRO: position override wins; otherwise CC mapping decides.
- *   • All other courses: CC mapping AND position rules must both pass.
+ * Combined eligibility:
+ *   1) FIRST  — CC must be mapped to the course in cc_course_requirements
+ *   2) SECOND — Position rules must also pass
+ * Only when BOTH pass is the course "applicable" for this employee.
  */
 function is_employee_eligible_for_course(array $cc_course_map, ?string $cc, string $course_code, ?string $position): bool
 {
-    $code = strtoupper(trim($course_code));
-    $is_management_role = is_sms_management_role($position);
-
-    // ── SMS-MGR / SMSMRO — position override runs FIRST ──
-    if ($code === 'SMS-MGR' && $is_management_role) {
-        return true;   // forced applicable (bypasses CC map)
+    // STEP 1 — CC mapping gate (always applied first)
+    if (!is_course_required($cc_course_map, $cc, $course_code)) {
+        return false;   // CC not mapped to this course → Not Applicable
     }
-    if ($code === 'SMSMRO' && $is_management_role) {
-        return false;  // forced not applicable (bypasses CC map)
-    }
-    // ─────────────────────────────────────────────────────
 
-    // Fall back to CC map + position rules
-    return is_course_required($cc_course_map, $cc, $course_code)
-        && is_position_eligible($course_code, $position);
+    // STEP 2 — Position rules
+    if (!is_position_eligible($course_code, $position)) {
+        return false;   // Position excludes this course → Not Applicable
+    }
+
+    // Both passed → applicable
+    return true;
 }
-
-/* --------- END helpers --------- */
 
 function safe_table(string $t): bool
 {
