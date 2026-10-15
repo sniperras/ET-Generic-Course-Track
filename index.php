@@ -28,7 +28,7 @@ const DISPUTE_COOLDOWN_DAYS = 2;
 const FOREVER_THRESHOLD = 999999; // Any validity months >= this value = forever
 
 // Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM', 'MCM'];
 
 /* --------- Helper Functions --------- */
 function is_always_not_taken_course(string $employee_id, string $course_code): bool
@@ -93,6 +93,7 @@ function is_sms_management_role(?string $position): bool
     return (strpos($pos, 'MANAGER') !== false)
         || (strpos($pos, 'MGR')     !== false)
         || (strpos($pos, 'MD')      !== false)
+        || (strpos($pos, 'TEAM LEADER')      !== false)
         || (strpos($pos, 'DIR')     !== false);
 }
 
@@ -116,6 +117,7 @@ function is_position_eligible(string $course_code, ?string $position): bool
     if ($code === 'ETTPM') {
         return (strpos($pos, 'TEAM LEADER') !== false)
             || (strpos($pos, 'DIR') !== false)
+            || (strpos($pos, 'MANAGER') !== false)
             || (strpos($pos, 'MGR') !== false);
     }
 
@@ -124,7 +126,8 @@ function is_position_eligible(string $course_code, ?string $position): bool
     if ($code === 'IP') {
         return (strpos($pos, 'TECHNICIAN III') !== false)
             || (strpos($pos, 'TECHNICIAN IV')  !== false)
-            || (strpos($pos, 'TEAM LEADER')    !== false);
+            || (strpos($pos, 'TEAM LEADER')    !== false)
+            || (strpos($pos, 'MANAGER') !== false);
     }
 
     // ── MEL — not for mechanics ──
@@ -134,7 +137,7 @@ function is_position_eligible(string $course_code, ?string $position): bool
 
     // ── DGR / RCAT — not for Team Leaders or Managers ──
     if ($code === 'DGR' || $code === 'RCAT') {
-        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false) return false;
+        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false || strpos($pos, 'MANAGER') !== false) return false;
     }
 
     return true;
@@ -690,6 +693,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 
 
+
+
     <title>Generic Course Track — Check Your Training Status</title>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -713,7 +718,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 <body class="bg-gray-50 min-h-screen flex flex-col">
 
-    <header class="bg-blue-900 text-white shadow">
+    <header class="bg-[#588D01] text-white shadow">
         <div class="max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
             <div class="flex items-center gap-3">
                 <img src="./img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
@@ -792,7 +797,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                         <input name="employee_id" required value="<?= h($emp_id_submitted) ?>"
                             class="flex-1 px-4 py-3 border rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-200"
                             placeholder="e.g. 19962">
-                        <button type="submit" class="bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-blue-800">Check Status</button>
+                        <button type="submit" class="bg-[#588D01] text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-[#3B5E01] transition">Check Status</button>
                     </div>
                 </form>
             </div>
@@ -960,7 +965,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
         <?php if ($employee): ?>
             <div id="printableArea">
                 <div class="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
-                    <div class="bg-gradient-to-r from-blue-800 to-blue-900 text-white p-6">
+                    <div class="bg-[#588D01] text-white p-6">
                         <div class="flex items-center justify-between">
                             <div>
                                 <div class="text-sm">Employee</div>
@@ -1024,8 +1029,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                 <thead class="bg-gray-100 text-gray-700">
                                     <tr>
                                         <th class="p-3 text-left">Course</th>
-                                        <th class="p-3 text-center">Completed Date</th>
-                                        <th class="p-3 text-center">Expiry Date</th>
+                                        <th class="p-3 text-center">Course Completed Date</th>
+                                        <th class="p-3 text-center">Course Expiry Date</th>
                                         <th class="p-3 text-center">Status</th>
                                         <th class="p-3 text-center">Validity</th>
                                         <th class="p-3 text-center">Note</th>
@@ -1154,7 +1159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     </main>
 
     <!-- FOOTER: stays at bottom, matches original blue-950 with subtle text, compact -->
-    <footer class="bg-blue-950 text-gray-300 py-3 flex-shrink-0">
+    <footer class="bg-[#588D01] text-white py-3 flex-shrink-0">
         <div class="w-full max-w-7xl mx-auto px-5 text-center">
             <p class="text-xs">
                 © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
