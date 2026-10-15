@@ -689,13 +689,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 <head>
     <meta charset="utf-8">
+ <title>Ethiopian Airlines CourseTrack | Employee Training Status</title>
+    <meta name="description" content="CourseTrack lets employees check course completion, training expiry dates, and submitted complaint updates through one central employee portal.">
+    <meta name="robots" content="<?= $is_indexable_homepage ? 'index, follow' : 'noindex, nofollow' ?>">
+    <?php if ($is_indexable_homepage): ?>
+    <link rel="canonical" href="https://coursetrack.etairtv.com/">
+    <?php endif; ?>
+    <meta property="og:title" content="Ethiopian Airlines CourseTrack | Employee Training Status">
+    <meta property="og:description" content="Check course completion and training expiry status, then follow up on submitted training complaints.">
+    <meta property="og:url" content="https://coursetrack.etairtv.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Ethiopian Airlines CourseTrack">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Ethiopian Airlines CourseTrack | Employee Training Status">
+    <meta name="twitter:description" content="Check course completion and training expiry status, then follow up on submitted training complaints.">
+    <meta name="theme-color" content="#1e3a8a">
+    <?php if ($is_indexable_homepage): ?>
+    <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "Ethiopian Airlines CourseTrack",
+            "url": "https://coursetrack.etairtv.com/"
+        }
+    </script>
 
-
-
-
-
-
-    <title>Generic Course Track — Check Your Training Status</title>
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -717,7 +735,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 </head>
 
 <body class="bg-gray-50 min-h-screen flex flex-col">
-
+    <?php include __DIR__ . '/training_notice_popup.php'; ?>
     <header class="bg-[#588D01] text-white shadow">
         <div class="max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
             <div class="flex items-center gap-3">
