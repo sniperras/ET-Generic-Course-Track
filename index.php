@@ -773,7 +773,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                <a href="/about.php" class="text-white font-semibold hover:underline">About CourseTrack</a>
                 <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
             </div>
         </div>
