@@ -24,7 +24,7 @@ if (!isGuest()) {
 // CONFIG
 // -----------------------------------------------------------------
 $CACHE_TTL = 300;
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM', 'MCM'];
 const FOREVER_THRESHOLD = 999999;
 
 // Staff category groupings
@@ -93,8 +93,8 @@ $_SESSION['dept_gap_to_be_days'] = $to_be_days;
 // -----------------------------------------------------------------
 // Gap type filter (All / Initial / Expired / To-be)
 // -----------------------------------------------------------------
-$gap_filter = $_GET['gap_type'] ?? ($_SESSION['dept_gap_filter'] ?? 'all');
-if (!in_array($gap_filter, ['all', 'initial', 'expired', 'tobe'], true)) $gap_filter = 'all';
+$gap_filter = $_GET['gap_type'] ?? ($_SESSION['dept_gap_filter'] ?? 'expired');
+if (!in_array($gap_filter, ['all', 'initial', 'expired', 'tobe'], true)) $gap_filter = 'expired';
 $_SESSION['dept_gap_filter'] = $gap_filter;
 
 // -----------------------------------------------------------------
@@ -514,6 +514,7 @@ $js_pie_values = json_encode($pie_values);
 
 <head>
     <meta charset="utf-8">
+
 
 
     <title>Department Training GAP Report</title>
@@ -1000,7 +1001,7 @@ $js_pie_values = json_encode($pie_values);
                                 <td class="course-col"
                                     onclick="location.href='?page=department_gap_report&export=summary&type=gap_active&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
                                     title="Click to export ALL expired + initial rows">
-                                    Total GAP [active employees]
+                                    Total GAP
                                 </td>
                                 <?php foreach ($departments as $d):
                                     $v = ($matrix['dept_totals_expired'][$d] ?? 0) + ($matrix['dept_totals_initial'][$d] ?? 0);
@@ -1071,19 +1072,19 @@ $js_pie_values = json_encode($pie_values);
 
                             <?php
                             if ($gap_filter === 'initial') {
-                                $summary_label   = 'Total GAP (ONLY Initial) [active employees]';
+                                $summary_label   = 'Total GAP (ONLY Initial)';
                                 $summary_metric  = 'dept_totals_initial';
                                 $summary_grand   = 'grand_initial';
                                 $summary_type    = 'initial';
                                 $summary_css     = 'initial-row';
                             } elseif ($gap_filter === 'expired') {
-                                $summary_label   = 'Total GAP (Expired) [active employees]';
+                                $summary_label   = 'Total GAP (Expired)';
                                 $summary_metric  = 'dept_totals_expired';
                                 $summary_grand   = 'grand_expired';
                                 $summary_type    = 'expired';
                                 $summary_css     = 'expired-row';
                             } else { // tobe
-                                $summary_label   = 'Total GAP (To be expired) [active employees]';
+                                $summary_label   = 'Total GAP (To be expired)';
                                 $summary_metric  = 'dept_totals_tobe';
                                 $summary_grand   = 'grand_tobe';
                                 $summary_type    = 'tobe';
