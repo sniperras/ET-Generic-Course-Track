@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body class="bg-gradient-to-br from-cream-900 to-blue-700 no-scroll flex flex-col">
 
     <!-- Navbar - compact version -->
-    <nav class="bg-blue-900 text-white shadow flex-shrink-0">
+    <nav class="bg-[#588D01] text-white shadow flex-shrink-0">
         <div class="max-w-7xl mx-auto px-6 py-3 flex justify-between items-center">
             <a href="../index.php" class="flex items-center space-x-3 text-white hover:text-blue-200 transition">
                 <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
 
                 <button type="submit"
-                    class="w-full bg-blue-800 hover:bg-blue-900 text-white font-bold text-lg py-3 rounded-xl transition shadow-lg hover:scale-105">
+                    class="w-full bg-[#588D01] hover:bg-orange-500 text-white font-bold text-lg py-3 rounded-xl transition shadow-lg hover:scale-105">
                     Login
                 </button>
             </form>
@@ -102,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <!-- FOOTER: stays at bottom, matches original blue-950 with subtle text, compact -->
-    <footer class="bg-blue-950 text-gray-300 py-3 flex-shrink-0">
+    <footer class="bg-[#588D01] text-white py-3 flex-shrink-0">
         <div class="w-full max-w-7xl mx-auto px-5 text-center">
             <p class="text-xs">
                 © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.

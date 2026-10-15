@@ -102,13 +102,13 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 </head>
 
 <body class="bg-gray-100 min-h-screen font-inter">
-  <header class="bg-blue-900 text-white shadow-lg">
+  <header class="bg-[#588D01] text-white shadow-lg">
     <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
       <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
       <h1 class="text-xl font-bold">Ethiopian Airlines Generic Course Track</h1>
       <div class="flex items-center gap-6">
         <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Guest') ?></strong></span>
-        <span class="text-sm bg-blue-700 px-3 py-1 rounded-full"><?= strtoupper($current_user_role) ?></span>
+        <span class="text-sm bg-[#588D01] text-white px-3 py-1 rounded-full"><?= strtoupper($current_user_role) ?></span>
         <?php if ($current_user_role !== 'guest'): ?>
           <button onclick="openPasswordModal()"
             class="bg-yellow-600 hover:bg-yellow-700 px-5 py-2 rounded-lg font-medium transition duration-200">
@@ -116,7 +116,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           </button>
           <a href="/index.php" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg font-medium transition duration-200">Logout</a>
         <?php else: ?>
-          <a href="admin_login.php" class="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-lg font-medium transition duration-200">Login</a>
+          <a href="admin_login.php" class="bg-white hover:bg-gray-50 text-[#588D01] px-5 py-2 rounded-lg font-medium transition duration-200">Login</a>
         <?php endif; ?>
       </div>
     </div>
@@ -153,7 +153,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           }
         ?>
           <a href="?page=<?= urlencode($key) ?>"
-            class="block py-4 px-8 <?= $active ? 'bg-blue-700 text-white' : 'hover:bg-gray-100 text-gray-700' ?>">
+            class="block py-4 px-8 <?= $active ? 'bg-[#588D01] text-white' : 'hover:bg-gray-100 text-gray-700' ?>">
             <?= htmlspecialchars($label) ?>
           </a>
         <?php endforeach; ?>

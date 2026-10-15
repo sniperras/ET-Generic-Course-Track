@@ -269,7 +269,7 @@ $pdf->Ln(5);
 
 // Signature Block
 $pdf->SetFont('helvetica', '', 8);
-$pdf->MultiCell(0, 4.5, "This is to certify that the above technician has completed the required recurrent training as per Ethiopian Civil Aviation Authority (ECAA) and EASA Part-145 requirements.", 0, 'C');
+$pdf->MultiCell(0, 4.5, "This is to certify that the above employee has completed the required recurrent training as per Ethiopian Civil Aviation Authority (ECAA) and EASA Part-145 requirements.", 0, 'C');
 $pdf->Ln(2);
 
 $col_width = 62;
