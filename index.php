@@ -1,4 +1,43 @@
 <?php
+// Serve crawler files through the PHP front controller as well as the root static files.
+// This covers hosts that rewrite missing .txt/.xml paths to index.php.
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+if ($requestPath === '/robots.txt') {
+    header('Content-Type: text/plain; charset=UTF-8');
+    header('Cache-Control: public, max-age=3600');
+    echo implode("\n", [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /admin/',
+        'Disallow: /include/',
+        'Disallow: /Script/',
+        'Disallow: /TCPDF/',
+        'Disallow: /vendor/',
+        'Disallow: /logs/',
+        'Disallow: /print_pdf.php',
+        '',
+        'Sitemap: https://coursetrack.etairtv.com/sitemap.xml',
+        '',
+    ]);
+    exit;
+}
+if ($requestPath === '/sitemap.xml') {
+    header('Content-Type: application/xml; charset=UTF-8');
+    header('Cache-Control: public, max-age=3600');
+    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+    echo '  <url><loc>https://coursetrack.etairtv.com/about.php</loc></url>' . "\n";
+    echo '</urlset>';
+    exit;
+}
+$lookupResponse = (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET')
+    || isset($_GET['dispute_id'])
+    || isset($_GET['check_dispute_status']);
+$portalRobotsDirective = $lookupResponse
+    ? 'noindex, nofollow, nosnippet'
+    : 'noindex, follow';
+header('X-Robots-Tag: ' . $portalRobotsDirective, true);
+
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -689,31 +728,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 <head>
     <meta charset="utf-8">
- <title>Ethiopian Airlines CourseTrack | Employee Training Status</title>
-    <meta name="description" content="CourseTrack lets employees check course completion, training expiry dates, and submitted complaint updates through one central employee portal.">
-    <meta name="robots" content="<?= $is_indexable_homepage ? 'index, follow' : 'noindex, nofollow' ?>">
-    <?php if ($is_indexable_homepage): ?>
-    <link rel="canonical" href="https://coursetrack.etairtv.com/">
-    <?php endif; ?>
+
+    <title>Ethiopian Airlines CourseTrack | Employee Training Status</title>
+    <meta name="description" content="Use Ethiopian Airlines CourseTrack to check recorded employee course completion, training expiry dates, and submitted complaint status.">
+    <meta name="robots" content="<?= $portalRobotsDirective ?>">
     <meta property="og:title" content="Ethiopian Airlines CourseTrack | Employee Training Status">
-    <meta property="og:description" content="Check course completion and training expiry status, then follow up on submitted training complaints.">
+    <meta property="og:description" content="Check course completion, training expiry dates, and submitted course complaint updates with CourseTrack.">
     <meta property="og:url" content="https://coursetrack.etairtv.com/">
     <meta property="og:type" content="website">
+    <meta property="og:locale" content="en_ET">
     <meta property="og:site_name" content="Ethiopian Airlines CourseTrack">
     <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="Ethiopian Airlines CourseTrack | Employee Training Status">
-    <meta name="twitter:description" content="Check course completion and training expiry status, then follow up on submitted training complaints.">
-    <meta name="theme-color" content="#1e3a8a">
-    <?php if ($is_indexable_homepage): ?>
-    <script type="application/ld+json">
-        {
-            "@context": "https://schema.org",
-            "@type": "WebSite",
-            "name": "Ethiopian Airlines CourseTrack",
-            "url": "https://coursetrack.etairtv.com/"
-        }
-    </script>
-
+    <meta name="twitter:description" content="Check course completion, training expiry dates, and submitted course complaint updates with CourseTrack.">
+    <meta name="theme-color" content="#588D01">
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -745,7 +773,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
                 </div>
             </div>
-            <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
+            <div class="flex items-center gap-3">
+                <!-- <a href="/about.php" class="text-white font-semibold hover:underline">About CourseTrack</a> -->
+                <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
+            </div>
         </div>
     </header>
     <!-- ════════════════════════════════════════════════════════════════
@@ -820,7 +851,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 </form>
             </div>
 
-            <div class="bg-white rounded-2xl shadow-lg p-8">
+            <div id="complaint-status" class="bg-white rounded-2xl shadow-lg p-8">
                 <h2 class="text-2xl font-bold mb-4">Check Complaint Status</h2>
                 <form method="GET" class="max-w-full">
                     <label class="block text-sm font-medium text-gray-600 mb-1">Complaint ID</label>
