@@ -1171,7 +1171,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                 <form method="GET" class="flex items-center gap-2" id="toBeForm">
                     <label class="text-sm text-gray-600">To-be-expire window (days):</label>
                     <input type="number" name="to_be_days" min="0" value="<?= htmlspecialchars($to_be_days) ?>" class="w-24 px-2 py-1 border rounded">
-                    <button class="bg-blue-600 text-white px-3 py-1 rounded">Apply</button>
+                    <button class="bg-[#588D01] hover:bg-[#3B5E01] text-white px-3 py-1 rounded transition">Apply</button>
                 </form>
             </div>
         </div>
@@ -1208,7 +1208,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="bg-white p-6 rounded-xl shadow">
                 <h3 class="text-sm uppercase text-gray-500">Total active employees</h3>
-                <p class="text-4xl font-bold text-blue-700"><?= number_format($filtered_employees_count) ?></p>
+                <p class="text-4xl font-bold text-[#588D01]"><?= number_format($filtered_employees_count) ?></p>
                 <?php if (!empty($selected_cost_centers)): ?>
                     <p class="text-xs text-gray-500">Filtered by selected cost centers</p>
                 <?php endif; ?>
@@ -1240,7 +1240,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             <div class="bg-white p-4 rounded-xl shadow">
                 <h3 class="font-bold mb-2">Selected Cost Centers</h3>
                 <div class="text-center p-4">
-                    <p class="text-2xl font-bold text-blue-600"><?= count($selected_cost_centers) ?: 'All' ?></p>
+                    <p class="text-2xl font-bold text-[#588D01]"><?= count($selected_cost_centers) ?: 'All' ?></p>
                     <p class="text-sm text-gray-500">Cost Center<?= count($selected_cost_centers) != 1 ? 's' : '' ?> Selected</p>
                     <?php if (!empty($selected_cost_centers)): ?>
                         <div class="text-xs text-gray-400 mt-2 max-h-20 overflow-y-auto">
