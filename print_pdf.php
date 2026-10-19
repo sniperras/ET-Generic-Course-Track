@@ -2,6 +2,7 @@
 // print_pdf.php - Public PDF generation for employee training report (NO LOGIN REQUIRED)
 
 require_once __DIR__ . '/include/db_connect.php';
+require_once __DIR__ . '/include/cc_overrides.php';
 
 // Clear any output buffering
 if (ob_get_level()) {
@@ -36,6 +37,85 @@ if (!$employee) {
     die('Employee not found. ID: ' . htmlspecialchars($emp_id));
 }
 
+// Load CC + Position → Course overrides
+$cc_position_overrides = load_cc_position_overrides($pdo);
+
+/**
+ * Check if a course is required for a given CC based on cc_course_requirements.
+ * (This is the raw CC mapping lookup — no override logic here.)
+ */
+function cc_has_course_requirement(?string $cc, string $course_code): bool
+{
+    static $cache = [];
+    $cc = trim((string)$cc);
+    if ($cc === '') return false;
+
+    if (!isset($cache[$cc])) {
+        global $pdo;
+        $stmt = $pdo->prepare("SELECT course_code FROM cc_course_requirements WHERE cost_center = ?");
+        $stmt->execute([$cc]);
+        $cache[$cc] = array_flip(array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'course_code'));
+    }
+    return isset($cache[$cc][$course_code]);
+}
+
+/**
+ * Position eligibility — mirrors index.php / dashboard.php / department_gap_report.php
+ */
+function is_position_eligible(string $course_code, ?string $position): bool
+{
+    $code = strtoupper(trim($course_code));
+    $pos  = strtoupper(trim((string)$position));
+
+    // Normalize whitespace (NBSP, thin spaces, multiple spaces) to single spaces
+    $pos  = preg_replace('/[\x{00A0}\x{2000}-\x{200B}\x{202F}\x{205F}\x{3000}\s]+/u', ' ', $pos);
+
+    $is_mgmt = (
+        strpos($pos, 'MANAGER') !== false
+        || strpos($pos, 'MGR')     !== false
+        || strpos($pos, 'MD')      !== false
+        || strpos($pos, 'DIR')     !== false
+        || strpos($pos, 'TEAM LEADER') !== false
+    );
+
+    // SMS-MGR / SMSMRO — pure position rules
+    if ($code === 'SMS-MGR')  return $is_mgmt;
+    if ($code === 'SMSMRO')   return !$is_mgmt;
+
+    // ETTPM — Team Leader or Manager
+    if ($code === 'ETTPM') {
+        return (strpos($pos, 'TEAM LEADER') !== false)
+            || (strpos($pos, 'DIR') !== false)
+            || (strpos($pos, 'MANAGER') !== false)
+            || (strpos($pos, 'MGR') !== false);
+    }
+
+    // IP — only certain technical roles
+    if ($code === 'IP') {
+        return (strpos($pos, 'TECHNICIAN III') !== false)
+            || (strpos($pos, 'TECHNICIAN IV')  !== false)
+            || (strpos($pos, 'TEAM LEADER')    !== false)
+            || (strpos($pos, 'INSPECTOR')      !== false)
+            || (strpos($pos, 'MANAGER')        !== false);
+    }
+
+    // MEL — not for mechanics
+    if ($code === 'MEL') {
+        if (strpos($pos, 'MECHANIC') !== false) return false;
+    }
+
+    // DGR / RCAT — not for Team Leaders or Managers
+    if ($code === 'DGR' || $code === 'RCAT') {
+        if (
+            strpos($pos, 'TEAM LEADER') !== false
+            || strpos($pos, 'MGR') !== false
+            || strpos($pos, 'MANAGER') !== false
+        ) return false;
+    }
+
+    return true;
+}
+
 // Get all courses
 $courses = $pdo->query("
     SELECT course_id, course_code, course_name, COALESCE(validity_months, 24) AS validity_months, TRIM(table_name) AS table_name
@@ -44,7 +124,7 @@ $courses = $pdo->query("
     ORDER BY course_code ASC
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-// Never expire courses (also include courses with validity >= FOREVER_THRESHOLD)
+// Never expire courses
 $NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
 
 // Build records
@@ -55,6 +135,35 @@ foreach ($courses as $course) {
     $course_name = $course['course_name'];
     $validity_months = (int)$course['validity_months'];
     $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
+
+    $cc  = $employee['cost_center'] ?? '';
+    $pos = $employee['position'] ?? '';
+
+    // ── STEP 0 — Override is authoritative YES ──
+    $forced_override = is_forced_applicable_by_override($cc_position_overrides, $cc, $pos, $course_code);
+
+    // ── STEP 1 — CC map gate ──
+    $required_by_cc = cc_has_course_requirement($cc, $course_code);
+
+    // ── STEP 2 — Position rules ──
+    $pos_eligible = is_position_eligible($course_code, $pos);
+
+    // Final applicability decision (same as index/dashboard/dept_gap):
+    //   • Override → always applicable
+    //   • Otherwise: CC mapped AND position eligible
+    $is_applicable = $forced_override || ($required_by_cc && $pos_eligible);
+
+    if (!$is_applicable) {
+        $records[] = [
+            'code' => $course_code,
+            'name' => $course_name,
+            'taken_date' => '—',
+            'status' => 'Not Applicable',
+            'validity' => $validity_months,
+            'validity_display' => formatValidity($validity_months),
+        ];
+        continue;
+    }
 
     $completed = null;
     $status = 'Not Taken';
@@ -118,8 +227,8 @@ $pdf->setPrintHeader(false);
 $pdf->setPrintFooter(false);
 $pdf->AddPage();
 
-// Letterhead
-$pdf->SetFillColor(0, 74, 173);
+// Letterhead — #588D01
+$pdf->SetFillColor(88, 141, 1);
 $pdf->Rect(0, 0, 210, 22, 'F');
 
 // Logo
@@ -143,13 +252,7 @@ $pdf->SetFont('helvetica', 'I', 8);
 $pdf->SetXY(50, 14);
 $pdf->Cell(0, 5, 'Addis Ababa, Bole international Airport, Ethiopia | Call us : (+251-11) 517-8864/8608', 0, 1, 'L');
 
-// // Separator Line
-// $pdf->SetDrawColor(0, 0, 0);
-// $pdf->SetLineWidth(0.5);
-// $pdf->Line(10, 34, 200, 34);
-
 // Main Title
-// $pdf->Ln(8);
 $pdf->SetTextColor(0);
 $pdf->SetFont('helvetica', 'B', 14);
 $pdf->SetXY(10, 25);
@@ -160,9 +263,9 @@ $pdf->SetTextColor(0);
 $pdf->Cell(157, 0, 'Generated on: ' . date('d F Y \a\t H:i'), 0, 1, 'R');
 $pdf->Ln(4);
 
-// Employee Info
+// Employee Info — section header in #588D01
 $pdf->SetXY(10, 38);
-$pdf->SetFillColor(0, 74, 173);
+$pdf->SetFillColor(88, 141, 1);
 $pdf->SetTextColor(255);
 $pdf->SetFont('helvetica', 'B', 10);
 $pdf->Cell(0, 7, ' TRAINING VERIFICATION ', 0, 1, 'C', true);
@@ -213,7 +316,7 @@ $header = ['#', 'Code', 'Course Name', 'Date', 'Status', 'Validity'];
 $w = [7, 23, 92, 25, 26, 20];
 
 $pdf->SetFont('helvetica', 'B', 9);
-$pdf->SetFillColor(220, 230, 250);
+$pdf->SetFillColor(219, 233, 178); // light tint of #588D01
 $pdf->SetTextColor(0);
 
 foreach ($header as $i => $h) {
@@ -226,6 +329,7 @@ $row_height = 5.5;
 $pdf->SetFont('helvetica', '', 8);
 
 foreach ($records as $record) {
+    // Colour coding per gap type (same as index.php)
     if ($record['status'] == 'Current') {
         $r = 0;
         $g = 128;
@@ -239,6 +343,7 @@ foreach ($records as $record) {
         $g = 158;
         $b = 11;
     } else {
+        // Not Applicable → gray
         $r = 108;
         $g = 117;
         $b = 125;
@@ -260,7 +365,6 @@ foreach ($records as $record) {
     $pdf->SetTextColor(0);
     $pdf->SetFont('helvetica', '', 8);
 
-    // Use the formatted validity display
     $pdf->Cell($w[5], $row_height, $record['validity_display'], 1, 0, 'C');
     $pdf->Ln();
 }
@@ -274,23 +378,15 @@ $pdf->Ln(2);
 
 $col_width = 62;
 $pdf->SetFont('helvetica', 'B', 9);
-//$pdf->Cell($col_width, 6, 'Prepared by:', 0, 0, 'C');
-//$pdf->Cell($col_width, 6, 'Approved by:', 0, 0, 'C');
 $pdf->Cell($col_width, 6, 'Verified by:', 0, 1, 'C');
 
 $pdf->SetFont('helvetica', '', 9);
-//$pdf->Cell($col_width, 10, '_________________________', 0, 0, 'C');
-//$pdf->Cell($col_width, 10, '_________________________', 0, 0, 'C');
 $pdf->Cell($col_width, 10, '_________________________', 0, 1, 'C');
 
 $pdf->SetFont('helvetica', '', 7.5);
-//$pdf->Cell($col_width, 5, 'Training Coordinator', 0, 0, 'C');
-//$pdf->Cell($col_width, 5, 'Quality Manager', 0, 0, 'C');
 $pdf->Cell($col_width, 5, 'MRO HR', 0, 1, 'C');
 
 $pdf->SetFont('helvetica', 'I', 7);
-//$pdf->Cell($col_width, 5, 'Date: _____________', 0, 0, 'C');
-//$pdf->Cell($col_width, 5, 'Date: _____________', 0, 0, 'C');
 $pdf->Cell($col_width, 5, 'Date: ' . date('d F Y'), 0, 1, 'C');
 
 $pdf->Ln(3);
