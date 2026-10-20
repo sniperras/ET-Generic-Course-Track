@@ -46,7 +46,6 @@ function createCourseRecordsTable($pdo, $course_code)
 function updateExistingTable($pdo, $table_name)
 {
     try {
-        // Check if table exists first
         $check = $pdo->prepare("SHOW TABLES LIKE ?");
         $check->execute([$table_name]);
         if ($check->rowCount() == 0) {
@@ -65,7 +64,6 @@ function updateExistingTable($pdo, $table_name)
             }
         }
 
-        // Add missing columns
         foreach ($columnsToAdd as $col) {
             switch ($col) {
                 case 'NameOfEmployee':
@@ -108,28 +106,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_course'])) {
     $course_code   = trim($_POST['course_code']);
     $course_name   = trim($_POST['course_name']);
     $validity      = (int)$_POST['validity_months'];
+    $is_active     = isset($_POST['is_active']) && (int)$_POST['is_active'] === 0 ? 0 : 1;
     $table_name    = 'course_records_' . strtolower($course_code);
 
     try {
         if ($course_id) {
-            // Get old course code before update
+            // Get old course code / table before update
             $stmt = $pdo->prepare("SELECT course_code, table_name FROM courses WHERE course_id = ?");
             $stmt->execute([$course_id]);
             $old_course = $stmt->fetch();
             $old_table = $old_course['table_name'];
             $new_table = 'course_records_' . strtolower($course_code);
 
-            // Update course info
-            $stmt = $pdo->prepare("UPDATE courses SET course_code = ?, course_name = ?, validity_months = ?, table_name = ? WHERE course_id = ?");
-            $stmt->execute([$course_code, $course_name, $validity, $table_name, $course_id]);
+            // Update course info INCLUDING is_active
+            $stmt = $pdo->prepare("UPDATE courses SET course_code = ?, course_name = ?, validity_months = ?, table_name = ?, is_active = ? WHERE course_id = ?");
+            $stmt->execute([$course_code, $course_name, $validity, $table_name, $is_active, $course_id]);
 
             // Rename table if course code changed
             if ($old_table !== $new_table && $old_table) {
-                $rename_sql = "RENAME TABLE `$old_table` TO `$new_table`";
-                $pdo->exec($rename_sql);
+                $pdo->exec("RENAME TABLE `$old_table` TO `$new_table`");
             }
 
-            // Update existing table structure if needed
             updateExistingTable($pdo, $new_table);
 
             $_SESSION['course_message'] = ['type' => 'success', 'text' => 'Course updated successfully!'];
@@ -141,11 +138,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_course'])) {
                 throw new Exception("Course code already exists!");
             }
 
-            // Insert course
-            $stmt = $pdo->prepare("INSERT INTO courses (course_code, course_name, validity_months, table_name, is_active) VALUES (?, ?, ?, ?, 1)");
-            $stmt->execute([$course_code, $course_name, $validity, $table_name]);
+            // Insert course with chosen is_active
+            $stmt = $pdo->prepare("INSERT INTO courses (course_code, course_name, validity_months, table_name, is_active) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$course_code, $course_name, $validity, $table_name, $is_active]);
 
-            // Create the dynamic table for this course with the required columns
             if (createCourseRecordsTable($pdo, $course_code)) {
                 $_SESSION['course_message'] = ['type' => 'success', 'text' => 'Course added successfully with records table!'];
             } else {
@@ -160,38 +156,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_course'])) {
     exit;
 }
 
-// Handle delete course
-if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $course_id = $_GET['delete'];
-
-    try {
-        $stmt = $pdo->prepare("SELECT course_code, table_name FROM courses WHERE course_id = ?");
-        $stmt->execute([$course_id]);
-        $course = $stmt->fetch();
-
-        if ($course) {
-            $table_name = $course['table_name'];
-            $drop_sql = "DROP TABLE IF EXISTS `$table_name`";
-            $pdo->exec($drop_sql);
-
-            $delete = $pdo->prepare("DELETE FROM courses WHERE course_id = ?");
-            $delete->execute([$course_id]);
-
-            $_SESSION['course_message'] = ['type' => 'success', 'text' => 'Course and its records table deleted successfully!'];
-        }
-    } catch (Exception $e) {
-        $_SESSION['course_message'] = ['type' => 'error', 'text' => 'Error deleting course: ' . $e->getMessage()];
-    }
-
-    header("Location: admin_panel.php?page=courses");
-    exit;
-}
-
-// Function to get record count - DIRECT COUNT that actually works
+// Function to get record count
 function getRecordCount($pdo, $table_name)
 {
     try {
-        // First check if the table exists using SHOW TABLES
         $checkTable = $pdo->prepare("SHOW TABLES LIKE ?");
         $checkTable->execute([$table_name]);
 
@@ -199,14 +167,12 @@ function getRecordCount($pdo, $table_name)
             return 0;
         }
 
-        // Table exists, count the records
         $countStmt = $pdo->prepare("SELECT COUNT(*) as total FROM `$table_name`");
         $countStmt->execute();
         $result = $countStmt->fetch(PDO::FETCH_ASSOC);
 
         return (int)$result['total'];
     } catch (Exception $e) {
-        // Log error for debugging
         error_log("Error counting records in $table_name: " . $e->getMessage());
         return 0;
     }
@@ -248,6 +214,16 @@ function getRecordCount($pdo, $table_name)
                 min="1" max="999999" required class="w-full px-5 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
         </div>
 
+        <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Active Status</label>
+            <?php $currentActive = $editCourse ? (int)$editCourse['is_active'] : 1; ?>
+            <select name="is_active" class="w-full px-5 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white">
+                <option value="1" <?= $currentActive === 1 ? 'selected' : '' ?>>✓ Active</option>
+                <option value="0" <?= $currentActive === 0 ? 'selected' : '' ?>>Inactive</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Inactive courses keep their records but are excluded from all reports and the compliance PDF.</p>
+        </div>
+
         <div class="md:col-span-3 flex gap-4">
             <button name="save_course" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-lg transition shadow">
                 <?= $editCourse ? 'Update Course' : 'Add Course' ?>
@@ -275,20 +251,24 @@ function getRecordCount($pdo, $table_name)
                     <th class="px-6 py-4 text-center">Validity</th>
                     <th class="px-6 py-4 text-left">Records Table</th>
                     <th class="px-6 py-4 text-center">Records Count</th>
+                    <th class="px-6 py-4 text-center">Status</th>
                     <th class="px-6 py-4 text-center">Actions</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-200">
                 <?php
-                $stmt = $pdo->query("SELECT * FROM courses ORDER BY course_code");
+                $stmt = $pdo->query("SELECT * FROM courses ORDER BY is_active DESC, course_code");
                 $hasCourses = false;
                 while ($c = $stmt->fetch()):
                     $hasCourses = true;
                     $recordCount = getRecordCount($pdo, $c['table_name']);
+                    $isActive    = (int)$c['is_active'] === 1;
                 ?>
-                    <tr class="hover:bg-gray-50 transition">
-                        <td class="px-6 py-4 font-bold text-blue-700"><?= htmlspecialchars($c['course_code']) ?></td>
-                        <td class="px-6 py-4"><?= htmlspecialchars($c['course_name']) ?></td>
+                    <tr class="hover:bg-gray-50 transition <?= $isActive ? '' : 'bg-gray-50 opacity-90' ?>">
+                        <td class="px-6 py-4 font-bold <?= $isActive ? 'text-blue-700' : 'text-gray-500' ?>">
+                            <?= htmlspecialchars($c['course_code']) ?>
+                        </td>
+                        <td class="px-6 py-4 <?= $isActive ? '' : 'text-gray-500' ?>"><?= htmlspecialchars($c['course_name']) ?></td>
                         <td class="px-6 py-4 text-center"><?= $c['validity_months'] ?> months</td>
                         <td class="px-6 py-4">
                             <code class="text-xs bg-gray-100 px-2 py-1 rounded"><?= htmlspecialchars($c['table_name']) ?></code>
@@ -298,17 +278,25 @@ function getRecordCount($pdo, $table_name)
                                 <?= number_format($recordCount) ?> record<?= $recordCount != 1 ? 's' : '' ?>
                             </span>
                         </td>
-                        <td class="px-6 py-4 text-center space-x-3">
+                        <td class="px-6 py-4 text-center">
+                            <?php if ($isActive): ?>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                                    ✓ Active
+                                </span>
+                            <?php else: ?>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-200 text-gray-600">
+                                    Inactive
+                                </span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="px-6 py-4 text-center whitespace-nowrap">
                             <a href="?page=courses&edit=<?= $c['course_id'] ?>" class="text-blue-600 hover:text-blue-800 font-medium">Edit</a>
-                            <a href="?page=courses&delete=<?= $c['course_id'] ?>"
-                                onclick="return confirm('Delete this course and ALL its records? This cannot be undone!')"
-                                class="text-red-600 hover:text-red-800 font-medium">Delete</a>
                         </td>
                     </tr>
                 <?php endwhile; ?>
                 <?php if (!$hasCourses): ?>
                     <tr>
-                        <td colspan="6" class="text-center py-12 text-gray-500">No courses yet. Add one above!</td>
+                        <td colspan="7" class="text-center py-12 text-gray-500">No courses yet. Add one above!</td>
                     </tr>
                 <?php endif; ?>
             </tbody>

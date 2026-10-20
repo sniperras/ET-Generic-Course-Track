@@ -46,13 +46,13 @@ $course_table_map_old = [
     'course_records_rsmqsm' => ['RSM QCM', 'RSM/QCM LMT'],
     'course_records_ettpm' => ['ETTPM', 'RSTPM'],
     'course_records_smsmgr' => ['SMSSM', 'STFMAS', 'SMSEM'],
-    'course_records_smsop' => ['SMSOP'],
+    //'course_records_smsop' => ['SMSOP'],
     'course_records_smsmro' => ['STFMOP', 'SMSOP'],
     'course_records_rcat' => ['COM'],
     'course_records_dgr' => ['DG', 'DGR Handling in a Warehouse', 'DGRFAM'],
     'course_records_mnx' => ['MNTX'],
-    'course_records_hf' => ['HFTRCECS', 'HFTICNCSO'],
-    'course_records_hfmp' => ['HFAMP', 'HFR'],
+    'course_records_hf' => ['HFTRCECS', 'HFTICNCSO', 'HFAMP', 'HFR'],
+    //'course_records_hfmp' => ['HFAMP', 'HFR'],
     'course_records_a350src' => ['a350r'],
     'course_records_b737asrc' => ['B737NG Refresher'],
     'course_records_b787asrc' => ['B787R'],
@@ -131,13 +131,13 @@ $course_table_map_new = [
         'SMS course Final Exam for Managers and Supervisors',
         'Examination'
     ],
-    'course_records_smsop'        => ['Exam for SMS for Operational Personnel'],
+    // 'course_records_smsop'        => ['Exam for SMS for Operational Personnel'],
     'course_records_smsmro'       => [
         'MROSMS Final Exam',
         'Exam for SMS for Operational Personnel',
         'Examination'
     ],
-    'course_records_rcat'         => ['EXAM'],
+    'course_records_rcat'         => ['RADIOTELEPHONY EXAM'],
     'course_records_dgr'          => [
         'Exam - DGR for Aircraft Maintenance Personnel-Initial',
         'Exam for DGR training for Flight Operations Personnel and Flight Dispatchers-Initial',
@@ -154,13 +154,13 @@ $course_table_map_new = [
         'EXAM For Human Factors for Maintenance Personnel-Refresher',
         'HUMAN FACTORS INITIAL EXAM (outstation)'
     ],
-    'course_records_hfmp'         => [
-        'Basic Trainees Examination',
-        'EXAM HF-Initial (NEW)',
-        'Exam for Human Factors',
-        'EXAM For Human Factors for Maintenance Personnel-Refresher',
-        'HUMAN FACTORS INITIAL EXAM (outstation)'
-    ],
+    // 'course_records_hfmp'         => [
+    //     'Basic Trainees Examination',
+    //     'EXAM HF-Initial (NEW)',
+    //     'Exam for Human Factors',
+    //     'EXAM For Human Factors for Maintenance Personnel-Refresher',
+    //     'HUMAN FACTORS INITIAL EXAM (outstation)'
+    // ],
     'course_records_a350src'      => [
         'A350 Systems Refresher Course Final Exam',
         'A350 Systems Refresher Course Final Exam (outstation)'
@@ -227,7 +227,7 @@ $quiz_pass_marks = [
     'SMS COURSE FINAL EXAM FOR MANAGERS AND SUPERVISORS' => 75,
     'EXAM FOR SMS FOR OPERATIONAL PERSONNEL'          => 75,
     'EXAMINATION'                                     => 75,
-    'EXAM'                                            => 75,
+    'RADIOTELEPHONY EXAM'                                            => 75,
     'EXAM - DGR FOR AIRCRAFT MAINTENANCE PERSONNEL-INITIAL' => 80,
     'MAINTENIX EXAM'                                  => 45,
     'BASIC TRAINEES EXAMINATION'                      => 75,
@@ -734,6 +734,7 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
 
 <head>
     <meta charset="utf-8">
+
 
     <title>Import Training Records - Auto Route</title>
     <script src="https://cdn.tailwindcss.com"></script>
