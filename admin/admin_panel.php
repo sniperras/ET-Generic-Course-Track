@@ -117,7 +117,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           </button>
           <a href="/index.php" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg font-medium transition duration-200">Logout</a>
         <?php else: ?>
-          <a href="admin_login.php" class="bg-white hover:bg-gray-50 text-[#588D01] px-5 py-2 rounded-lg font-medium transition duration-200">Login</a>
+          <a href="/index.php" class="bg-white hover:bg-gray-50 text-[#588D01] px-5 py-2 rounded-lg font-medium transition duration-200">Home</a>
         <?php endif; ?>
       </div>
     </div>

@@ -1361,7 +1361,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             </div>
         </div>
 
-        <!-- Courses Table -->
+        <!-- Courses Table
         <div class="mt-6 bg-white p-4 rounded-xl shadow">
             <div class="flex justify-between items-center mb-3">
                 <h3 class="font-bold">Courses Table <?= !empty($selected_cost_centers) ? '(Filtered by selected cost centers)' : '' ?></h3>
@@ -1406,7 +1406,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                     </tbody>
                 </table>
             </div>
-        </div>
+        </div> -->
         <br>
         <!-- Cost Center Filter Section -->
         <div class="filter-section">
@@ -1470,9 +1470,9 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                         </h4>
                         <div class="flex items-center gap-4" onclick="event.stopPropagation()">
                             <div class="combined-export-group">
-                                <a href="admin_panel.php?page=dashboard&export_combined_csv=1&etype=expired&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-btn" style="background-color: #dc2626;">⚠️ Export Expired Only</a>
-                                <a href="admin_panel.php?page=dashboard&export_combined_csv=1&etype=tobe&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-btn" style="background-color: #f59e0b;">⏰ Export To-be Only</a>
-                                <a href="admin_panel.php?page=dashboard&export_combined_csv=1&etype=initial&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-btn" style="background-color: #6b7280;">📋 Export Initial Only</a>
+                                <a href="admin_panel.php?page=dashboard&export_combined_csv=1&etype=expired&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-btn" style="background-color: #dc2626;">Export Expired Only</a>
+                                <a href="admin_panel.php?page=dashboard&export_combined_csv=1&etype=tobe&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-btn" style="background-color: #f59e0b;">Export To-be Only</a>
+                                <a href="admin_panel.php?page=dashboard&export_combined_csv=1&etype=initial&to_be_days=<?= $to_be_days ?>&<?= !empty($selected_cost_centers) ? 'selected_cc[]=' . implode('&selected_cc[]=', array_map('urlencode', $selected_cost_centers)) : '' ?>" class="export-btn" style="background-color: #6b7280;">Export Initial Only</a>
                             </div>
                             <span class="toggle-icon text-xl">▶</span>
                         </div>
