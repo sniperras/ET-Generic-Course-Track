@@ -89,7 +89,8 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
 <html lang="en">
 
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8">
+
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Ethiopian Airlines Generic Course Track</title>
   <link rel="icon" type="image/png" href="../img/ethiopian_logo.ico">
