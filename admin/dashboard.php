@@ -5,6 +5,7 @@ ob_start();
 
 require_once __DIR__ . '/../include/db_connect.php';
 require_once __DIR__ . '/../include/auth.php';
+require_once __DIR__ . '/../include/cc_overrides.php';
 if (!isGuest()) {
     requireAdmin();
 }
@@ -16,7 +17,7 @@ $TOP_DEPT_COUNT = 12;
 $DEFAULT_TO_BE_DAYS = 1;
 $DRILL_PAGE_SIZE = 50;
 
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM', 'MCM'];
 const FOREVER_THRESHOLD = 999999;
 
 function safe_table($t)
@@ -80,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['apply_filter'])) {
     $selected_cost_centers = $_SESSION['selected_cost_centers'];
 }
 
-// ==================== COST-CENTER → COURSE REQUIREMENT MAP ====================
+// ==================== LOAD MAPS ====================
 $cc_course_map = [];
 try {
     $map_rows = $pdo->query("SELECT cost_center, course_code FROM cc_course_requirements")->fetchAll(PDO::FETCH_ASSOC);
@@ -88,95 +89,171 @@ try {
         $cc_course_map[trim($r['cost_center'])][trim($r['course_code'])] = true;
     }
 } catch (Exception $e) {
-    $cc_course_map = [];
 }
 
-function is_course_required($cc_course_map, $cc, $course_code)
-{
-    if (empty($cc_course_map)) return true;
-    if ($cc === null || $cc === '') return false;
-    return isset($cc_course_map[$cc][$course_code]);
+$cc_dept_map = [];
+try {
+    $rows = $pdo->query("SELECT cost_center, department FROM cost_center_departments")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        $cc_dept_map[trim($r['cost_center'])] = trim($r['department']);
+    }
+} catch (Exception $e) {
 }
 
-/**
- * Position eligibility — all rules are SUBSTRING, case-insensitive.
- *
- * POSITIVE (must match at least one):
- *   - ETTPM    → "TEAM LEADER" OR "MGR"
- *   - SMS-MGR  → "MGR"
- *   - IP       → "TECHNICIAN III" OR "TECHNICIAN IV" OR "TEAM LEADER"
- *
- * NEGATIVE (must NOT match any):
- *   - MEL      → must NOT contain "MECHANIC"
- *   - DGR      → must NOT contain "TEAM LEADER" OR "MGR"
- *   - RCAT     → must NOT contain "TEAM LEADER" OR "MGR"
- */
-function is_position_eligible($course_code, $position)
+$cc_position_overrides = load_cc_position_overrides($pdo);
+
+// ==================== ELIGIBILITY HELPERS ====================
+
+function is_sms_management_role(?string $position): bool
 {
-    $code = strtoupper(trim((string)$course_code));
+    $pos = strtoupper(trim((string)$position));
+    if ($pos === '') return false;
+
+    return (strpos($pos, 'MANAGER') !== false)
+        || (strpos($pos, 'MGR')     !== false)
+        || (strpos($pos, 'MD')      !== false)
+        || (strpos($pos, 'DIR')     !== false)
+        || (strpos($pos, 'TEAM LEADER') !== false);
+}
+
+function is_position_eligible(string $course_code, ?string $position): bool
+{
+    $code = strtoupper(trim($course_code));
     $pos  = strtoupper(trim((string)$position));
 
-    // ── POSITIVE ──
+    // Normalize whitespace
+    $pos = preg_replace('/[\x{00A0}\x{2000}-\x{200B}\x{202F}\x{205F}\x{3000}\s]+/u', ' ', $pos);
+
+    $is_mgmt = is_sms_management_role($position);
+
+    if ($code === 'SMS-MGR')  return $is_mgmt;
+    if ($code === 'SMSMRO')   return !$is_mgmt;
+
     if ($code === 'ETTPM') {
-        if (!(strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false)) return false;
-    }
-    if ($code === 'SMS-MGR') {
-        if (strpos($pos, 'MGR') === false) return false;
-    }
-    if ($code === 'IP') {
-        if (!(strpos($pos, 'TECHNICIAN III') !== false
-            || strpos($pos, 'TECHNICIAN IV')  !== false
-            || strpos($pos, 'TEAM LEADER')    !== false)) return false;
+        return (strpos($pos, 'TEAM LEADER') !== false)
+            || (strpos($pos, 'DIR') !== false)
+            || (strpos($pos, 'MANAGER') !== false)
+            || (strpos($pos, 'MGR') !== false);
     }
 
-    // ── NEGATIVE ──
+    if ($code === 'IP') {
+        return (strpos($pos, 'TECHNICIAN III') !== false)
+            || (strpos($pos, 'TECHNICIAN IV')  !== false)
+            || (strpos($pos, 'TEAM LEADER')    !== false)
+            || (strpos($pos, 'FLEET')          !== false)
+            || (strpos($pos, 'INSPECTOR')      !== false)
+            || (strpos($pos, 'MANAGER')        !== false);
+    }
+
     if ($code === 'MEL') {
         if (strpos($pos, 'MECHANIC') !== false) return false;
     }
+
     if ($code === 'DGR' || $code === 'RCAT') {
-        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false) return false;
+        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false || strpos($pos, 'MANAGER') !== false) return false;
     }
 
     return true;
 }
 
-function is_employee_eligible($cc_course_map, $cc, $course_code, $position)
+function is_employee_eligible($cc_course_map, $cc_dept_map, $cc, $course_code, $position)
 {
-    return is_course_required($cc_course_map, $cc, $course_code)
-        && is_position_eligible($course_code, $position);
+    global $cc_position_overrides;
+
+    $emp_dept = $cc_dept_map[trim((string)$cc)] ?? '';
+
+    // STEP -1 — SKIP override (highest priority)
+    if (
+        !empty($cc_position_overrides)
+        && is_forced_skipped_by_override($cc_position_overrides, $cc, $position, $course_code, $emp_dept)
+    ) {
+        return false;
+    }
+
+    // STEP 0 — TAKE override
+    if (
+        !empty($cc_position_overrides)
+        && is_forced_applicable_by_override($cc_position_overrides, $cc, $position, $course_code, $emp_dept)
+    ) {
+        return true;
+    }
+
+    // STEP 1 — CC map gate
+    if (empty($cc_course_map)) {
+        return is_position_eligible($course_code, $position);
+    }
+    if ($cc === null || trim($cc) === '') return false;
+    if (!isset($cc_course_map[$cc][$course_code])) return false;
+
+    // STEP 2 — Position rules
+    return is_position_eligible($course_code, $position);
 }
 
-/**
- * SQL fragment for AJAX drill-down — mirrors is_position_eligible().
- */
-function position_sql_filter($course_code, $alias = 'e')
+function eligibility_sql_filter($course_code, $alias = 'e')
 {
-    $code = strtoupper(trim((string)$course_code));
-    $p = $alias . '.position';
-    $sql = '';
+    global $pdo;
 
-    // Positive
+    $code = strtoupper(trim($course_code));
+    $ccQuoted = $pdo->quote($course_code);
+
+    // Normalized position expression (handles double spaces)
+    $pos_expr = "UPPER(REGEXP_REPLACE({$alias}.position, '[[:space:]]+', ' '))";
+
+    // ---- Position rule SQL ----
+    $posConditions = [];
+
     if ($code === 'ETTPM') {
-        $sql .= " AND (UPPER({$p}) LIKE '%TEAM LEADER%' OR UPPER({$p}) LIKE '%MGR%')";
+        $posConditions[] = "({$pos_expr} LIKE '%TEAM LEADER%' OR {$pos_expr} LIKE '%MGR%' OR {$pos_expr} LIKE '%DIR%' OR {$pos_expr} LIKE '%MANAGER%')";
     } elseif ($code === 'SMS-MGR') {
-        $sql .= " AND UPPER({$p}) LIKE '%MGR%'";
+        $posConditions[] = "({$pos_expr} LIKE '%MGR%' OR {$pos_expr} LIKE '%MANAGER%' OR {$pos_expr} LIKE '%DIR%' OR {$pos_expr} LIKE '%TEAM LEADER%' OR {$pos_expr} LIKE '%MD%')";
+    } elseif ($code === 'SMSMRO') {
+        $posConditions[] = "(NOT ({$pos_expr} LIKE '%MGR%' OR {$pos_expr} LIKE '%MANAGER%' OR {$pos_expr} LIKE '%DIR%' OR {$pos_expr} LIKE '%TEAM LEADER%' OR {$pos_expr} LIKE '%MD%'))";
     } elseif ($code === 'IP') {
-        $sql .= " AND (UPPER({$p}) LIKE '%TECHNICIAN III%' OR UPPER({$p}) LIKE '%TECHNICIAN IV%' OR UPPER({$p}) LIKE '%TEAM LEADER%')";
-    }
-
-    // Negative
-    if ($code === 'MEL') {
-        $sql .= " AND UPPER({$p}) NOT LIKE '%MECHANIC%'";
+        $posConditions[] = "({$pos_expr} LIKE '%TECHNICIAN III%' OR {$pos_expr} LIKE '%TECHNICIAN IV%' OR {$pos_expr} LIKE '%TEAM LEADER%' OR {$pos_expr} LIKE '%FLEET%' OR {$pos_expr} LIKE '%INSPECTOR%' OR {$pos_expr} LIKE '%MANAGER%')";
+    } elseif ($code === 'MEL') {
+        $posConditions[] = "NOT {$pos_expr} LIKE '%MECHANIC%'";
     } elseif ($code === 'DGR' || $code === 'RCAT') {
-        $sql .= " AND UPPER({$p}) NOT LIKE '%TEAM LEADER%' AND UPPER({$p}) NOT LIKE '%MGR%'";
+        $posConditions[] = "NOT ({$pos_expr} LIKE '%TEAM LEADER%' OR {$pos_expr} LIKE '%MGR%' OR {$pos_expr} LIKE '%MANAGER%')";
     }
 
-    return $sql;
+    $posClause = !empty($posConditions) ? ' AND (' . implode(' AND ', $posConditions) . ')' : '';
+
+    // ---- CC mapping AND position OK ----
+    $ccRequired = "
+        EXISTS (SELECT 1 FROM cc_course_requirements r
+                WHERE r.cost_center = {$alias}.cost_center
+                  AND r.course_code = {$ccQuoted})
+    ";
+
+    // ---- TAKE Override ----
+    $overrideTake = "
+        EXISTS (SELECT 1 FROM cc_position_course_overrides o
+                WHERE o.is_active = 1
+                  AND o.rule_type = 'take'
+                  AND o.cost_center = {$alias}.cost_center
+                  AND o.course_code = {$ccQuoted}
+                  AND {$pos_expr} LIKE CONCAT('%', UPPER(o.position_match), '%'))
+    ";
+
+    // ---- SKIP Override ----
+    $overrideSkip = "
+        EXISTS (SELECT 1 FROM cc_position_course_overrides o
+                WHERE o.is_active = 1
+                  AND o.rule_type = 'skip'
+                  AND (o.cost_center = '*' OR o.cost_center = {$alias}.cost_center)
+                  AND o.course_code = {$ccQuoted}
+                  AND (
+                      o.position_match = '' 
+                      OR {$pos_expr} LIKE CONCAT('%', UPPER(o.position_match), '%')
+                  ))
+    ";
+
+    // Main logic: MUST NOT be skipped, AND (Must be taken by override OR standard CC map)
+    return " AND (NOT ({$overrideSkip}) AND ( {$overrideTake} OR ( {$ccRequired} {$posClause} ) ))";
 }
 
 // ==================== ALL EXPORT HANDLERS ====================
 
-// ---------------- CSV export handler for courses ----------------
 if (isset($_GET['export_course'])) {
     while (ob_get_level()) ob_end_clean();
 
@@ -219,7 +296,7 @@ if (isset($_GET['export_course'])) {
 
     $tbl = $course['table_name'];
     $valid = (int)$course['validity_months'];
-    $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
+    $is_global_forever = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
 
     $placeholders = implode(',', array_fill(0, count($employee_ids), '?'));
     $stmt = $pdo->prepare("SELECT ID, CompletedDate, Status FROM `{$tbl}` WHERE ID IN ($placeholders)");
@@ -235,9 +312,15 @@ if (isset($_GET['export_course'])) {
     $export_data = [];
     foreach ($employee_ids as $emp_id) {
         $emp = $employee_details[$emp_id];
-        if (!is_employee_eligible($cc_course_map, $emp['cost_center'], $course_code, $emp['position'])) {
+        $cc = $emp['cost_center'];
+        $pos = $emp['position'];
+        $emp_dept = $cc_dept_map[$cc] ?? '';
+
+        if (!is_employee_eligible($cc_course_map, $cc_dept_map, $cc, $course_code, $pos)) {
             continue;
         }
+
+        $is_forever = $is_global_forever || is_forced_forever_by_override($cc_position_overrides, $cc, $pos, $course_code, $emp_dept);
 
         $status_type = '';
         $completion_date = null;
@@ -248,7 +331,7 @@ if (isset($_GET['export_course'])) {
             $completion_date = $completed_data[$emp_id]['completed_date'];
             if (!$completion_date || $completion_date == '0000-00-00') {
                 $status_type = 'initial';
-            } elseif ($never_expire) {
+            } elseif ($is_forever) {
                 continue;
             } else {
                 $completion_dt = DateTime::createFromFormat('Y-m-d', $completion_date);
@@ -296,7 +379,6 @@ if (isset($_GET['export_course'])) {
     exit;
 }
 
-// ---------------- CSV Export for Cost Center (Employee List) ----------------
 if (isset($_GET['export_dept_csv'])) {
     while (ob_get_level()) ob_end_clean();
 
@@ -323,16 +405,16 @@ if (isset($_GET['export_dept_csv'])) {
                             FROM courses WHERE is_active=1 AND table_name IS NOT NULL ORDER BY course_code")->fetchAll(PDO::FETCH_ASSOC);
 
     $export_data = [];
+    $emp_dept = $cc_dept_map[$cost_center] ?? '';
 
     foreach ($courses as $c) {
         $tbl = $c['table_name'];
         $valid = (int)$c['validity_months'];
         $course_code = trim($c['course_code']);
         $course_name = $c['course_name'];
-        $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
+        $is_global_forever = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
 
         if (!safe_table($tbl)) continue;
-        if (!is_course_required($cc_course_map, $cost_center, $course_code)) continue;
 
         $placeholders = implode(',', array_fill(0, count($employee_ids), '?'));
         $stmt = $pdo->prepare("SELECT ID, CompletedDate, Status FROM `{$tbl}` WHERE ID IN ($placeholders)");
@@ -347,9 +429,13 @@ if (isset($_GET['export_dept_csv'])) {
 
         foreach ($employee_ids as $emp_id) {
             $emp = $employee_details[$emp_id];
-            if (!is_position_eligible($course_code, $emp['position'])) {
+            $pos = $emp['position'];
+
+            if (!is_employee_eligible($cc_course_map, $cc_dept_map, $cost_center, $course_code, $pos)) {
                 continue;
             }
+
+            $is_forever = $is_global_forever || is_forced_forever_by_override($cc_position_overrides, $cost_center, $pos, $course_code, $emp_dept);
 
             $status_type = '';
             $completion_date = null;
@@ -360,7 +446,7 @@ if (isset($_GET['export_dept_csv'])) {
                 $completion_date = $completed_data[$emp_id]['completed_date'];
                 if (!$completion_date || $completion_date == '0000-00-00') {
                     $status_type = 'initial';
-                } elseif ($never_expire) {
+                } elseif ($is_forever) {
                     continue;
                 } else {
                     $completion_dt = DateTime::createFromFormat('Y-m-d', $completion_date);
@@ -418,7 +504,6 @@ if (isset($_GET['export_dept_csv'])) {
     exit;
 }
 
-// ---------------- CSV Export for Selected Cost Centers (Combined) ----------------
 if (isset($_GET['export_combined_csv'])) {
     while (ob_get_level()) ob_end_clean();
 
@@ -456,7 +541,7 @@ if (isset($_GET['export_combined_csv'])) {
         $valid = (int)$c['validity_months'];
         $course_code = trim($c['course_code']);
         $course_name = $c['course_name'];
-        $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
+        $is_global_forever = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
 
         if (!safe_table($tbl)) continue;
 
@@ -473,9 +558,15 @@ if (isset($_GET['export_combined_csv'])) {
 
         foreach ($employee_ids as $emp_id) {
             $emp = $employee_details[$emp_id];
-            if (!is_employee_eligible($cc_course_map, $emp['cost_center'], $course_code, $emp['position'])) {
+            $cc = $emp['cost_center'];
+            $pos = $emp['position'];
+            $emp_dept = $cc_dept_map[$cc] ?? '';
+
+            if (!is_employee_eligible($cc_course_map, $cc_dept_map, $cc, $course_code, $pos)) {
                 continue;
             }
+
+            $is_forever = $is_global_forever || is_forced_forever_by_override($cc_position_overrides, $cc, $pos, $course_code, $emp_dept);
 
             $status_type = '';
             $completion_date = null;
@@ -486,7 +577,7 @@ if (isset($_GET['export_combined_csv'])) {
                 $completion_date = $completed_data[$emp_id]['completed_date'];
                 if (!$completion_date || $completion_date == '0000-00-00') {
                     $status_type = 'initial';
-                } elseif ($never_expire) {
+                } elseif ($is_forever) {
                     continue;
                 } else {
                     $completion_dt = DateTime::createFromFormat('Y-m-d', $completion_date);
@@ -566,59 +657,65 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'course_employees') {
     $tbl = $course['table_name'];
     $valid = (int)$course['validity_months'];
     $course_code = trim($course['course_code']);
-    $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
+    $is_global_forever = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
 
     if (!safe_table($tbl)) {
         echo json_encode(['ok' => false, 'error' => 'Invalid course table']);
         exit;
     }
 
-    $reqExists = " AND EXISTS (SELECT 1 FROM cc_course_requirements r
-                               WHERE r.cost_center = e.cost_center
-                                 AND r.course_code = " . $pdo->quote($course_code) . ")";
-
-    $posFilter = position_sql_filter($course_code, 'e');
+    $eligibility = eligibility_sql_filter($course_code, 'e');
 
     try {
         if ($type === 'initial') {
             $sql_count = "SELECT COUNT(*) FROM employees e LEFT JOIN `{$tbl}` t ON e.employee_id=t.ID
-                          WHERE e.is_active=1 AND (t.ID IS NULL OR t.CompletedDate IS NULL OR t.CompletedDate=''){$reqExists}{$posFilter}";
+                          WHERE e.is_active=1 AND (t.ID IS NULL OR t.CompletedDate IS NULL OR t.CompletedDate=''){$eligibility}";
             $sql_page = "SELECT e.employee_id, e.full_name, e.cost_center, e.position, e.department, t.CompletedDate, t.Status
                          FROM employees e LEFT JOIN `{$tbl}` t ON e.employee_id=t.ID
-                         WHERE e.is_active=1 AND (t.ID IS NULL OR t.CompletedDate IS NULL OR t.CompletedDate=''){$reqExists}{$posFilter}
+                         WHERE e.is_active=1 AND (t.ID IS NULL OR t.CompletedDate IS NULL OR t.CompletedDate=''){$eligibility}
                          ORDER BY e.cost_center, e.employee_id LIMIT {$limit} OFFSET {$offset}";
         } elseif ($type === 'expired') {
-            if ($never_expire) {
+            if ($is_global_forever) {
                 $sql_count = "SELECT 0";
                 $sql_page = "SELECT e.employee_id, e.full_name, e.cost_center, e.position, e.department, NULL AS CompletedDate, NULL AS Status FROM employees e WHERE 1=0";
             } else {
                 $sql_count = "SELECT COUNT(*) FROM `{$tbl}` t JOIN employees e ON e.employee_id=t.ID
                               WHERE e.is_active=1 AND t.CompletedDate IS NOT NULL
-                              AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) < CURDATE(){$reqExists}{$posFilter}";
+                              AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) < CURDATE(){$eligibility}";
                 $sql_page = "SELECT t.ID AS employee_id, e.full_name, e.cost_center, e.position, e.department, t.CompletedDate, t.Status
                              FROM `{$tbl}` t JOIN employees e ON e.employee_id=t.ID
                              WHERE e.is_active=1 AND t.CompletedDate IS NOT NULL
-                             AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) < CURDATE(){$reqExists}{$posFilter}
+                             AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) < CURDATE(){$eligibility}
                              ORDER BY e.cost_center, t.ID LIMIT {$limit} OFFSET {$offset}";
             }
         } else {
-            if ($never_expire) {
+            if ($is_global_forever) {
                 $sql_count = "SELECT 0";
                 $sql_page = "SELECT e.employee_id, e.full_name, e.cost_center, e.position, e.department, NULL AS CompletedDate, NULL AS Status FROM employees e WHERE 1=0";
             } else {
                 $sql_count = "SELECT COUNT(*) FROM `{$tbl}` t JOIN employees e ON e.employee_id=t.ID
                               WHERE e.is_active=1 AND t.CompletedDate IS NOT NULL
-                              AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL {$to_be} DAY){$reqExists}{$posFilter}";
+                              AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL {$to_be} DAY){$eligibility}";
                 $sql_page = "SELECT t.ID AS employee_id, e.full_name, e.cost_center, e.position, e.department, t.CompletedDate, t.Status
                              FROM `{$tbl}` t JOIN employees e ON e.employee_id=t.ID
                              WHERE e.is_active=1 AND t.CompletedDate IS NOT NULL
-                             AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL {$to_be} DAY){$reqExists}{$posFilter}
+                             AND DATE_ADD(t.CompletedDate, INTERVAL {$valid} MONTH) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL {$to_be} DAY){$eligibility}
                              ORDER BY e.cost_center, t.ID LIMIT {$limit} OFFSET {$offset}";
             }
         }
 
         $total = (int)$pdo->query($sql_count)->fetchColumn();
         $rows = $pdo->query($sql_page)->fetchAll(PDO::FETCH_ASSOC);
+
+        // Remove employees who have a FOREVER override if we are looking for expired/to-be
+        if ($type !== 'initial' && !$is_global_forever) {
+            $rows = array_filter($rows, function ($r) use ($cc_position_overrides, $course_code) {
+                $emp_dept = $GLOBALS['cc_dept_map'][$r['cost_center']] ?? '';
+                return !is_forced_forever_by_override($cc_position_overrides, $r['cost_center'], $r['position'], $course_code, $emp_dept);
+            });
+            $rows = array_values($rows);
+            $total = count($rows);
+        }
 
         echo json_encode([
             'ok' => true,
@@ -629,7 +726,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'course_employees') {
             'page' => $page,
             'page_size' => $limit,
             'rows' => $rows,
-            'never_expire' => $never_expire
+            'never_expire' => $is_global_forever
         ]);
     } catch (Exception $e) {
         echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
@@ -643,7 +740,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'course_employees') {
 $all_cost_centers = $pdo->query("SELECT DISTINCT cost_center FROM employees WHERE is_active = 1 AND cost_center IS NOT NULL AND cost_center != '' ORDER BY cost_center")->fetchAll(PDO::FETCH_COLUMN);
 
 // ---------------- MAIN PAGE: compute aggregated stats (cached) ----------------
-$cache_key = "dashboard_stats_v4_tobed_{$to_be_days}";
+$cache_key = "dashboard_stats_v7_tobed_{$to_be_days}";
 $cache_file = sys_get_temp_dir() . "/gct_dashboard_{$cache_key}.cache";
 
 if ($force_refresh && file_exists($cache_file)) {
@@ -706,7 +803,7 @@ if ($use_cache) {
         $tbl = $c['table_name'];
         $valid = (int)$c['validity_months'];
         $course_code = trim($c['course_code']);
-        $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
+        $is_global_forever = in_array($course_code, $NEVER_EXPIRE_COURSES) || $valid >= FOREVER_THRESHOLD;
 
         if (!safe_table($tbl)) continue;
 
@@ -734,10 +831,14 @@ if ($use_cache) {
         foreach ($active_employees as $emp) {
             $emp_id = $emp['employee_id'];
             $cc = $emp['cost_center'];
+            $pos = $emp['position'];
+            $emp_dept = $cc_dept_map[$cc] ?? '';
 
-            if (!is_employee_eligible($cc_course_map, $cc, $course_code, $emp['position'])) {
+            if (!is_employee_eligible($cc_course_map, $cc_dept_map, $cc, $course_code, $pos)) {
                 continue;
             }
+
+            $is_forever = $is_global_forever || is_forced_forever_by_override($cc_position_overrides, $cc, $pos, $course_code, $emp_dept);
 
             if (!isset($completed_data[$emp_id])) {
                 $dept_initial[$cc]++;
@@ -750,7 +851,7 @@ if ($use_cache) {
                 continue;
             }
 
-            if ($never_expire) {
+            if ($is_forever) {
                 continue;
             }
 
@@ -787,7 +888,7 @@ if ($use_cache) {
             'expired' => $expired_total,
             'tobe' => $tobe_total,
             'total_gap' => $expired_total + $tobe_total,
-            'never_expire' => $never_expire
+            'never_expire' => $is_global_forever
         ];
 
         foreach ($employees_by_cc as $cc => $emps) {
@@ -938,7 +1039,6 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
 
 <head>
     <meta charset="utf-8">
-
 
     <title>Dashboard — GenericCourseTrack (Stats)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1160,6 +1260,12 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             font-size: 13px;
             margin-bottom: 16px;
         }
+
+        /* Fixed height wrapper for the horizontal bar chart */
+        .bar-chart-wrap {
+            position: relative;
+            height: 320px;
+        }
     </style>
 </head>
 
@@ -1228,7 +1334,9 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
         <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class="bg-white p-4 rounded-xl shadow">
                 <h3 class="font-bold mb-2">GAP by course (Expired + To-be)</h3>
-                <canvas id="pieChart"></canvas>
+                <div class="bar-chart-wrap">
+                    <canvas id="pieChart"></canvas>
+                </div>
             </div>
             <div class="bg-white p-4 rounded-xl shadow">
                 <h3 class="font-bold mb-2">GAP by Cost Center</h3>
@@ -1277,7 +1385,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                                 <td class="p-2 border"><?= htmlspecialchars($cs['course_code'] . ' - ' . mb_substr($cs['course_name'], 0, 50)) ?></td>
                                 <td class="p-2 text-center border">
                                     <?php if ($cs['never_expire']): ?>
-                                        <span class="text-green-600 font-bold">✓ Forever</span>
+                                        <span class="text-green-600 font-bold">One-Time</span>
                                     <?php else: ?>
                                         <span class="text-gray-400">—</span>
                                     <?php endif; ?>
@@ -1299,7 +1407,7 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                 </table>
             </div>
         </div>
-
+        <br>
         <!-- Cost Center Filter Section -->
         <div class="filter-section">
             <h3 class="font-bold mb-3 text-lg">Filter Cost Centers</h3>
@@ -1484,21 +1592,105 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             }
         });
 
+        // ────────────────────────────────────────────────────────────
+        // GAP by course — HORIZONTAL BAR with exact values at end
+        // ────────────────────────────────────────────────────────────
         if (pieLabels.length > 0 && pieValues.length > 0) {
+            const palette = [
+                '#dc2626', '#f59e0b', '#eab308', '#10b981', '#06b6d4',
+                '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+                '#14b8a6', '#84cc16', '#f97316', '#a855f7', '#0ea5e9'
+            ];
+            const barColors = pieLabels.map((_, i) => palette[i % palette.length]);
+
+            // Inline plugin: exact number at the end of each bar
+            const valueLabelsPlugin = {
+                id: 'valueLabels',
+                afterDatasetsDraw(chart) {
+                    const {
+                        ctx
+                    } = chart;
+                    chart.data.datasets.forEach((dataset, di) => {
+                        const meta = chart.getDatasetMeta(di);
+                        meta.data.forEach((bar, i) => {
+                            const val = dataset.data[i];
+                            if (val === null || val === undefined) return;
+
+                            ctx.save();
+                            ctx.fillStyle = '#111827';
+                            ctx.font = 'bold 11px sans-serif';
+                            ctx.textAlign = 'left';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(Number(val).toLocaleString(), bar.x + 6, bar.y);
+                            ctx.restore();
+                        });
+                    });
+                }
+            };
+
             new Chart(document.getElementById('pieChart').getContext('2d'), {
-                type: 'pie',
+                type: 'bar',
                 data: {
                     labels: pieLabels,
                     datasets: [{
+                        label: 'GAP',
                         data: pieValues,
-                        backgroundColor: ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+                        backgroundColor: barColors,
+                        borderColor: barColors,
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        barThickness: 18
                     }]
                 },
                 options: {
+                    indexAxis: 'y',
                     responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 400
+                    },
+                    layout: {
+                        padding: {
+                            right: 40
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
+                                font: {
+                                    size: 10
+                                }
+                            },
+                            grid: {
+                                color: '#e5e7eb'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    weight: '600'
+                                }
+                            },
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
                     plugins: {
                         legend: {
-                            position: 'bottom'
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                    const pct = total ? ((ctx.raw / total) * 100).toFixed(1) : 0;
+                                    return `${ctx.label}: ${Number(ctx.raw).toLocaleString()} (${pct}%)`;
+                                }
+                            }
                         }
                     },
                     onClick(e, items) {
@@ -1517,10 +1709,14 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
                         const cid = COURSE_MAP[code];
                         window.open(`admin_panel.php?page=dashboard&ajax=course_employees&course_id=${cid}&type=initial&to_be_days=${toBeDays}`, '_blank');
                     }
-                }
+                },
+                plugins: [valueLabelsPlugin]
             });
         }
 
+        // ────────────────────────────────────────────────────────────
+        // GAP by Cost Center (unchanged pie)
+        // ────────────────────────────────────────────────────────────
         const costCenterLabels = <?= json_encode(array_keys($dept_gaps)) ?>;
         const costCenterValues = <?= json_encode(array_values($dept_gaps)) ?>;
 
@@ -1595,6 +1791,9 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
             document.getElementById('costCenterPieChart').parentElement.innerHTML = '<div class="text-center text-gray-500 py-8">No cost center data available</div>';
         }
 
+        // ────────────────────────────────────────────────────────────
+        // Combined dept charts (unchanged: pie + stacked bar)
+        // ────────────────────────────────────────────────────────────
         if (deptChartData.combined && deptChartData.combined.labels.length > 0) {
             const data = deptChartData.combined;
 

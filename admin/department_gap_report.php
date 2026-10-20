@@ -9,6 +9,8 @@
 // - Gap type filter (All / Initial / Expired / To-be)
 // - Staff category filter (All / Technical / Non-Technical)
 // - 5-minute file cache with Force Refresh button
+// - v5: honours TAKE / SKIP / FOREVER overrides from cc_position_course_overrides
+// - Chart: VERTICAL bar chart, stacked above the Summary card
 // =================================================================
 
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -16,6 +18,7 @@ ob_start();
 
 require_once __DIR__ . '/../include/db_connect.php';
 require_once __DIR__ . '/../include/auth.php';
+require_once __DIR__ . '/../include/cc_overrides.php';
 if (!isGuest()) {
     requireAdmin();
 }
@@ -39,11 +42,31 @@ function safe_table($t)
     return preg_match('/^course_records_[a-zA-Z0-9_]+$/', $t);
 }
 
-function is_course_required($cc_course_map, $cc, $course_code)
+function is_course_required($cc_course_map, $cc, $course_code, $position = '', $overrides = [])
 {
+    // ── 1. Position-based override (highest priority) ──
+    if (!empty($overrides) && $cc !== null && $cc !== '') {
+        if (is_forced_applicable_by_override($overrides, $cc, $position, $course_code)) {
+            return true;   // forced ON regardless of CC map
+        }
+    }
+
+    // ── 2. Standard CC mapping gate ──
     if (empty($cc_course_map)) return true;
     if ($cc === null || $cc === '') return false;
     return isset($cc_course_map[$cc][$course_code]);
+}
+
+function is_sms_management_role(?string $position): bool
+{
+    $pos = strtoupper(trim((string)$position));
+    if ($pos === '') return false;
+
+    return (strpos($pos, 'MANAGER') !== false)
+        || (strpos($pos, 'MGR')     !== false)
+        || (strpos($pos, 'MD')      !== false)
+        || (strpos($pos, 'DIR')     !== false)
+        || (strpos($pos, 'TEAM LEADER') !== false);
 }
 
 function is_position_eligible($course_code, $position)
@@ -51,29 +74,50 @@ function is_position_eligible($course_code, $position)
     $code = strtoupper(trim((string)$course_code));
     $pos  = strtoupper(trim((string)$position));
 
+    // Normalize whitespace (matches dashboard)
+    $pos = preg_replace('/[\x{00A0}\x{2000}-\x{200B}\x{202F}\x{205F}\x{3000}\s]+/u', ' ', $pos);
+
+    $is_mgmt = is_sms_management_role($position);
+
+    if ($code === 'SMS-MGR') return $is_mgmt;
+    if ($code === 'SMSMRO')  return !$is_mgmt;
+
     if ($code === 'ETTPM') {
-        if (!(strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false)) return false;
+        return (strpos($pos, 'TEAM LEADER') !== false)
+            || (strpos($pos, 'DIR') !== false)
+            || (strpos($pos, 'MANAGER') !== false)
+            || (strpos($pos, 'MGR') !== false);
     }
-    if ($code === 'SMS-MGR') {
-        if (strpos($pos, 'MGR') === false) return false;
-    }
+
     if ($code === 'IP') {
-        if (!(strpos($pos, 'TECHNICIAN III') !== false
-            || strpos($pos, 'TECHNICIAN IV')  !== false
-            || strpos($pos, 'TEAM LEADER')    !== false)) return false;
+        return (strpos($pos, 'TECHNICIAN III') !== false)
+            || (strpos($pos, 'TECHNICIAN IV')  !== false)
+            || (strpos($pos, 'TEAM LEADER')    !== false)
+            || (strpos($pos, 'FLEET')          !== false)
+            || (strpos($pos, 'INSPECTOR')      !== false)
+            || (strpos($pos, 'MANAGER')        !== false);
     }
+
     if ($code === 'MEL') {
         if (strpos($pos, 'MECHANIC') !== false) return false;
     }
+
     if ($code === 'DGR' || $code === 'RCAT') {
-        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false) return false;
+        if (
+            strpos($pos, 'TEAM LEADER') !== false
+            || strpos($pos, 'MGR')         !== false
+            || strpos($pos, 'MANAGER')     !== false
+        ) return false;
     }
+
     return true;
 }
 
 function is_employee_eligible($cc_course_map, $cc, $course_code, $position)
 {
-    return is_course_required($cc_course_map, $cc, $course_code)
+    global $cc_position_overrides;
+
+    return is_course_required($cc_course_map, $cc, $course_code, $position, $cc_position_overrides ?? [])
         && is_position_eligible($course_code, $position);
 }
 
@@ -144,6 +188,11 @@ try {
 }
 
 // -----------------------------------------------------------------
+// Load CC + Position → Course overrides ONCE
+// -----------------------------------------------------------------
+$cc_position_overrides = load_cc_position_overrides($pdo);
+
+// -----------------------------------------------------------------
 // Load active courses
 // -----------------------------------------------------------------
 $courses = $pdo->query("
@@ -183,7 +232,7 @@ foreach ($pdo->query("SELECT employee_id, full_name, position, cost_center FROM 
 // =================================================================
 if (isset($_GET['export'])) {
 
-    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments);
+    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments, $cc_position_overrides);
 
     $scope = $_GET['export'];
     $code  = $_GET['course'] ?? '';
@@ -318,7 +367,7 @@ if (isset($_GET['export'])) {
 // =================================================================
 // BUILD MATRIX
 // =================================================================
-function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments)
+function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments, $cc_position_overrides = [])
 {
     $matrix = [
         'gap'        => [],
@@ -392,6 +441,15 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $
 
                 if (!is_employee_eligible($cc_course_map, $cc, $course_code, $pos)) continue;
 
+                // ── SKIP override → treat as not applicable ──
+                if (is_forced_skipped_by_override($cc_position_overrides, $cc, $pos, $course_code, $dept)) {
+                    continue;
+                }
+
+                // ── FOREVER override → per-employee never-expire ──
+                $is_forever_for_emp = $never_expire
+                    || is_forced_forever_by_override($cc_position_overrides, $cc, $pos, $course_code, $dept);
+
                 $emp_id = $e['employee_id'];
                 $gap_type = 'ok';
                 $expiry_date = null;
@@ -406,7 +464,7 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $
 
                     if (!$cdt) {
                         $gap_type = 'initial';
-                    } elseif ($never_expire) {
+                    } elseif ($is_forever_for_emp) {
                         $gap_type = 'ok';
                     } else {
                         $expiry = (clone $cdt)->modify("+{$valid} months");
@@ -463,9 +521,9 @@ function build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $
 }
 
 // =================================================================
-// CACHE (key includes both filters)
+// CACHE (key includes both filters + overrides version)
 // =================================================================
-$cache_key  = "dept_gap_v3_tobed_{$to_be_days}_gap_{$gap_filter}_staff_{$staff_filter}";
+$cache_key  = "dept_gap_v5_tobed_{$to_be_days}_gap_{$gap_filter}_staff_{$staff_filter}";
 $cache_file = sys_get_temp_dir() . "/gct_{$cache_key}.cache";
 
 if ($force_refresh && file_exists($cache_file)) {
@@ -480,14 +538,14 @@ if ($use_cache) {
     $last_cache_update = date('H:i:s', filemtime($cache_file));
     $next_cache_update = date('H:i:s', time() + ($CACHE_TTL - (time() - filemtime($cache_file))));
 } else {
-    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments);
+    $matrix = build_matrix($pdo, $courses, $employees, $cc_course_map, $to_be_days, $departments, $cc_position_overrides);
     file_put_contents($cache_file, serialize(['matrix' => $matrix]));
     $last_cache_update = 'Just now';
     $next_cache_update = date('H:i:s', time() + $CACHE_TTL);
 }
 
 // =================================================================
-// PIE CHART DATA — reflects the active gap type filter
+// BAR CHART DATA — reflects the active gap type filter
 // =================================================================
 $pie_labels = [];
 $pie_values = [];
@@ -506,6 +564,23 @@ foreach ($departments as $d) {
         $pie_values[] = $val;
     }
 }
+
+// Sort bars descending so the biggest gaps are first (left-to-right for vertical bars)
+if (!empty($pie_values)) {
+    $order = array_keys($pie_values);
+    usort($order, function ($a, $b) use ($pie_values) {
+        return $pie_values[$b] <=> $pie_values[$a];
+    });
+    $sorted_labels = [];
+    $sorted_values = [];
+    foreach ($order as $i) {
+        $sorted_labels[] = $pie_labels[$i];
+        $sorted_values[] = $pie_values[$i];
+    }
+    $pie_labels = $sorted_labels;
+    $pie_values = $sorted_values;
+}
+
 $js_pie_labels = json_encode($pie_labels);
 $js_pie_values = json_encode($pie_values);
 ?>
@@ -514,8 +589,6 @@ $js_pie_values = json_encode($pie_values);
 
 <head>
     <meta charset="utf-8">
-
-
 
     <title>Department Training GAP Report</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -698,6 +771,12 @@ $js_pie_values = json_encode($pie_values);
             font-size: 12px;
             font-weight: 600;
         }
+
+        /* Vertical bar chart canvas height */
+        .bar-chart-wrap {
+            position: relative;
+            height: 380px;
+        }
     </style>
 </head>
 
@@ -708,10 +787,6 @@ $js_pie_values = json_encode($pie_values);
         <div class="flex items-start justify-between mb-4 flex-wrap gap-3">
             <div>
                 <h1 class="text-2xl font-bold text-gray-800">MRO Training GAP — by Department</h1>
-                <p class="text-sm text-gray-500">
-                    GAP = Expired + To-be-expired (within <strong><?= $to_be_days ?></strong> days).
-                    Initial (not taken) is shown separately.
-                </p>
             </div>
             <div class="flex items-center gap-3 flex-wrap">
                 <form method="GET" class="flex items-center gap-2" id="toBeForm">
@@ -759,8 +834,46 @@ $js_pie_values = json_encode($pie_values);
             </div>
         <?php endif; ?>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <div class="bg-white p-5 rounded-xl shadow lg:col-span-1">
+        <!-- ═══════════════════════════════════════════════════════════
+             STACKED LAYOUT:
+               1) GAP by Department (bar chart)        ← top
+               2) Summary (Expired / To-be)            ← middle
+               3) Department filter dropdown           ← inside chart card
+             Previously these were side-by-side (lg:grid-cols-3).
+             Now they are stacked full-width.
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="grid grid-cols-1 gap-6 mb-6">
+            <!-- ── 2. Summary card — now BELOW the chart ── -->
+            <div class="bg-white p-5 rounded-xl shadow">
+                <h3 class="font-bold mb-3 text-gray-700">
+                    Summary
+                    <?php if ($gap_filter !== 'all'): ?>
+                        — showing <span class="text-blue-700"><?= htmlspecialchars(ucfirst($gap_filter)) ?></span> only
+                    <?php endif; ?>
+                    <?php if ($staff_filter !== 'all'): ?>
+                        — <span class="text-blue-700"><?= $staff_filter === 'technical' ? 'Technical' : 'Non-Technical' ?></span>
+                    <?php endif; ?>
+                </h3>
+
+                <?php
+                $highlight_expired = ($gap_filter === 'expired');
+                $highlight_tobe    = ($gap_filter === 'tobe');
+                $highlight_initial = ($gap_filter === 'initial');
+                $highlight_gap     = ($gap_filter === 'all');
+                ?>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="bg-red-50 border <?= $highlight_expired ? 'ring-2 ring-red-400' : 'border-red-200' ?> rounded p-3">
+                        <div class="text-xs uppercase text-red-700">Expired</div>
+                        <div class="text-2xl font-bold text-red-700"><?= number_format($matrix['grand_expired']) ?></div>
+                    </div>
+                    <div class="bg-amber-50 border <?= $highlight_tobe ? 'ring-2 ring-amber-400' : 'border-amber-200' ?> rounded p-3">
+                        <div class="text-xs uppercase text-amber-700">To-be expired</div>
+                        <div class="text-2xl font-bold text-amber-700"><?= number_format($matrix['grand_tobe']) ?></div>
+                    </div>
+                </div>
+            </div>
+            <!-- ── 1. GAP by Department — VERTICAL bar chart ── -->
+            <div class="bg-white p-5 rounded-xl shadow">
                 <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
                     <h3 class="font-bold text-gray-700">GAP by Department</h3>
                     <form method="GET" class="flex items-center gap-2">
@@ -789,45 +902,16 @@ $js_pie_values = json_encode($pie_values);
                 <?php if (empty($pie_values)): ?>
                     <div class="text-center text-gray-400 py-8 text-sm">No data for selected filters</div>
                 <?php else: ?>
-                    <canvas id="deptPieChart" style="max-height: 320px;"></canvas>
+                    <div class="bar-chart-wrap">
+                        <canvas id="deptBarChart"></canvas>
+                    </div>
                 <?php endif; ?>
             </div>
 
-            <div class="bg-white p-5 rounded-xl shadow lg:col-span-2">
-                <h3 class="font-bold mb-3 text-gray-700">
-                    Summary
-                    <?php if ($gap_filter !== 'all'): ?>
-                        — showing <span class="text-blue-700"><?= htmlspecialchars(ucfirst($gap_filter)) ?></span> only
-                    <?php endif; ?>
-                    <?php if ($staff_filter !== 'all'): ?>
-                        — <span class="text-blue-700"><?= $staff_filter === 'technical' ? 'Technical' : 'Non-Technical' ?></span>
-                    <?php endif; ?>
-                </h3>
 
-                <?php
-                $highlight_expired = ($gap_filter === 'expired');
-                $highlight_tobe    = ($gap_filter === 'tobe');
-                $highlight_initial = ($gap_filter === 'initial');
-                $highlight_gap     = ($gap_filter === 'all');
-                ?>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div class="bg-red-50 border <?= $highlight_expired ? 'ring-2 ring-red-400' : 'border-red-200' ?> rounded p-3">
-                        <div class="text-xs uppercase text-red-700">Expired</div>
-                        <div class="text-2xl font-bold text-red-700"><?= number_format($matrix['grand_expired']) ?></div>
-                    </div>
-                    <div class="bg-amber-50 border <?= $highlight_tobe ? 'ring-2 ring-amber-400' : 'border-amber-200' ?> rounded p-3">
-                        <div class="text-xs uppercase text-amber-700">To-be expired</div>
-                        <div class="text-2xl font-bold text-amber-700"><?= number_format($matrix['grand_tobe']) ?></div>
-                    </div>
-                    <div class="bg-yellow-50 border <?= $highlight_initial ? 'ring-2 ring-yellow-400' : 'border-yellow-200' ?> rounded p-3">
-                        <div class="text-xs uppercase text-yellow-700">Initial (not taken)</div>
-                        <div class="text-2xl font-bold text-yellow-700"><?= number_format($matrix['grand_initial']) ?></div>
-                    </div>
-                </div>
-            </div>
         </div>
 
-        <!-- Matrix table -->
+        <!-- Matrix table (unchanged) -->
         <div class="bg-white rounded-xl shadow p-4">
             <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <h3 class="font-bold text-gray-700">
@@ -906,7 +990,6 @@ $js_pie_values = json_encode($pie_values);
                         </tr>
                     </thead>
                     <tbody>
-                        <!-- Course rows -->
                         <?php foreach ($courses as $c):
                             $code = trim($c['course_code']);
 
@@ -955,10 +1038,6 @@ $js_pie_values = json_encode($pie_values);
                         <?php endforeach; ?>
 
                         <?php if ($gap_filter === 'all'): ?>
-                            <!-- ═══════════════════════════════════════════════
-                                 FILTER = ALL → show all 5 summary rows
-                                 ═══════════════════════════════════════════════ -->
-
                             <tr class="summary-row expired-row">
                                 <td class="course-col"
                                     onclick="location.href='?page=department_gap_report&export=summary&type=expired&to_be_days=<?= $to_be_days ?>&gap_type=<?= urlencode($gap_filter) ?>&staff_cat=<?= urlencode($staff_filter) ?>'"
@@ -1065,11 +1144,6 @@ $js_pie_values = json_encode($pie_values);
                             </tr>
 
                         <?php else: ?>
-                            <!-- ═══════════════════════════════════════════════
-                                 FILTER = initial | expired | tobe
-                                 → show ONLY the single matching summary row
-                                 ═══════════════════════════════════════════════ -->
-
                             <?php
                             if ($gap_filter === 'initial') {
                                 $summary_label   = 'Total GAP (ONLY Initial)';
@@ -1135,36 +1209,111 @@ $js_pie_values = json_encode($pie_values);
         const toBeDays = <?= (int)$to_be_days ?>;
 
         if (pieLabels.length > 0) {
-            new Chart(document.getElementById('deptPieChart').getContext('2d'), {
-                type: 'pie',
+            // One colour per bar (cycles if more departments than colours)
+            const palette = [
+                '#dc2626', '#f59e0b', '#eab308', '#10b981', '#06b6d4',
+                '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+                '#14b8a6', '#84cc16', '#f97316', '#a855f7', '#0ea5e9'
+            ];
+            const barColors = pieLabels.map((_, i) => palette[i % palette.length]);
+
+            // ── Inline plugin: draw the exact number above each VERTICAL bar ──
+            const valueLabelsPlugin = {
+                id: 'valueLabels',
+                afterDatasetsDraw(chart) {
+                    const {
+                        ctx
+                    } = chart;
+                    chart.data.datasets.forEach((dataset, di) => {
+                        const meta = chart.getDatasetMeta(di);
+                        meta.data.forEach((bar, i) => {
+                            const val = dataset.data[i];
+                            if (val === null || val === undefined) return;
+
+                            ctx.save();
+                            ctx.fillStyle = '#111827';
+                            ctx.font = 'bold 11px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'bottom';
+                            // For VERTICAL bars, bar.y is the TOP of the bar.
+                            // Draw the label just above it with a small gap.
+                            ctx.fillText(
+                                Number(val).toLocaleString(),
+                                bar.x,
+                                bar.y - 6
+                            );
+                            ctx.restore();
+                        });
+                    });
+                }
+            };
+
+            new Chart(document.getElementById('deptBarChart').getContext('2d'), {
+                type: 'bar',
                 data: {
                     labels: pieLabels,
                     datasets: [{
+                        label: 'GAP',
                         data: pieValues,
-                        backgroundColor: [
-                            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-                            '#f39c12', '#9b59b6', '#1abc9c', '#e74c3c', '#3498db'
-                        ]
+                        backgroundColor: barColors,
+                        borderColor: barColors,
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        maxBarThickness: 60
                     }]
                 },
                 options: {
+                    // ⚠️ NO indexAxis → VERTICAL bars (default for Chart.js)
                     responsive: true,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 400
+                    },
+                    layout: {
+                        // Extra top padding so the value label above the tallest bar isn't clipped
+                        padding: {
+                            top: 30
+                        }
+                    },
+                    scales: {
+                        x: {
+                            // Department names on the x axis (vertical bars)
+                            ticks: {
+                                font: {
+                                    size: 11,
+                                    weight: '600'
+                                },
+                                maxRotation: 45,
+                                minRotation: 45,
+                                autoSkip: false
+                            },
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                precision: 0,
                                 font: {
                                     size: 11
                                 }
+                            },
+                            grid: {
+                                color: '#e5e7eb'
                             }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
                         },
                         tooltip: {
                             callbacks: {
                                 label: function(ctx) {
                                     const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
                                     const pct = total ? ((ctx.raw / total) * 100).toFixed(1) : 0;
-                                    return `${ctx.label}: ${ctx.raw.toLocaleString()} (${pct}%)`;
+                                    return `${ctx.label}: ${Number(ctx.raw).toLocaleString()} (${pct}%)`;
                                 }
                             }
                         }
@@ -1174,7 +1323,8 @@ $js_pie_values = json_encode($pie_values);
                         const dept = pieLabels[items[0].index];
                         window.location.href = `?page=department_gap_report&export=dept&dept=${encodeURIComponent(dept)}&to_be_days=${toBeDays}&gap_type=${encodeURIComponent(gapFilter)}&staff_cat=${encodeURIComponent(staffFilter)}`;
                     }
-                }
+                },
+                plugins: [valueLabelsPlugin]
             });
         }
     </script>
