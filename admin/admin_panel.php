@@ -46,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_own_password']
 $allowed_pages = [
   'dashboard',
   'department_gap_report',
+  'cc_position_coursecode',
   'employees',
   'courses',
   'records',
@@ -129,6 +130,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
         $nav = [
           'dashboard' => 'Dashboard',
           'department_gap_report' => 'Department Gap Report',
+          'cc_position_coursecode' => 'CC + Position → Course Overrides',
           'employees' => 'Employees',
           'courses'   => 'Courses',
           'records'   => 'Training Records',
@@ -187,6 +189,9 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           break;
         case 'import':
           include __DIR__ . '/import.php';
+          break;
+        case 'cc_position_coursecode':
+          include __DIR__ . '/cc_position_coursecode.php';
           break;
         case 'department_gap_report':
           include __DIR__ . '/department_gap_report.php';

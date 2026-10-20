@@ -16,7 +16,7 @@ const FOREVER_THRESHOLD = 999999;
 function formatValidity($months): string
 {
     if ($months >= FOREVER_THRESHOLD) {
-        return 'Forever';
+        return 'One-Time';
     }
     return $months . 'm';
 }
@@ -36,6 +36,10 @@ $employee = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$employee) {
     die('Employee not found. ID: ' . htmlspecialchars($emp_id));
 }
+
+$cc = trim($employee['cost_center'] ?? '');
+$pos = trim($employee['position'] ?? '');
+$emp_dept = trim($employee['department'] ?? '');
 
 // Load CC + Position → Course overrides
 $cc_position_overrides = load_cc_position_overrides($pdo);
@@ -95,6 +99,7 @@ function is_position_eligible(string $course_code, ?string $position): bool
         return (strpos($pos, 'TECHNICIAN III') !== false)
             || (strpos($pos, 'TECHNICIAN IV')  !== false)
             || (strpos($pos, 'TEAM LEADER')    !== false)
+            || (strpos($pos, 'FLEET')          !== false)
             || (strpos($pos, 'INSPECTOR')      !== false)
             || (strpos($pos, 'MANAGER')        !== false);
     }
@@ -125,7 +130,7 @@ $courses = $pdo->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // Never expire courses
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM', 'MCM', 'MNX'];
 
 // Build records
 $records = [];
@@ -134,23 +139,34 @@ foreach ($courses as $course) {
     $course_code = $course['course_code'];
     $course_name = $course['course_name'];
     $validity_months = (int)$course['validity_months'];
-    $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
+    $is_global_forever = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
 
-    $cc  = $employee['cost_center'] ?? '';
-    $pos = $employee['position'] ?? '';
+    // ── STEP -1: SKIP override (highest priority) ──
+    if (
+        !empty($cc_position_overrides)
+        && is_forced_skipped_by_override($cc_position_overrides, $cc, $pos, $course_code, $emp_dept)
+    ) {
+        $records[] = [
+            'code' => $course_code,
+            'name' => $course_name,
+            'taken_date' => '—',
+            'status' => 'Not Applicable',
+            'validity' => $validity_months,
+            'validity_display' => formatValidity($validity_months),
+        ];
+        continue;
+    }
 
-    // ── STEP 0 — Override is authoritative YES ──
-    $forced_override = is_forced_applicable_by_override($cc_position_overrides, $cc, $pos, $course_code);
+    // ── STEP 0: TAKE override ──
+    $forced_override = is_forced_applicable_by_override($cc_position_overrides, $cc, $pos, $course_code, $emp_dept);
 
-    // ── STEP 1 — CC map gate ──
+    // ── STEP 1: CC map gate ──
     $required_by_cc = cc_has_course_requirement($cc, $course_code);
 
-    // ── STEP 2 — Position rules ──
+    // ── STEP 2: Position rules ──
     $pos_eligible = is_position_eligible($course_code, $pos);
 
-    // Final applicability decision (same as index/dashboard/dept_gap):
-    //   • Override → always applicable
-    //   • Otherwise: CC mapped AND position eligible
+    // Final applicability decision
     $is_applicable = $forced_override || ($required_by_cc && $pos_eligible);
 
     if (!$is_applicable) {
@@ -164,6 +180,9 @@ foreach ($courses as $course) {
         ];
         continue;
     }
+
+    // Check if this specific employee has a FOREVER override
+    $is_forever = $is_global_forever || is_forced_forever_by_override($cc_position_overrides, $cc, $pos, $course_code, $emp_dept);
 
     $completed = null;
     $status = 'Not Taken';
@@ -185,7 +204,7 @@ foreach ($courses as $course) {
 
                     if (!$has_valid_date && ($st_lower === 'taken' || $st_lower === 'current')) {
                         $status = 'Not Taken';
-                    } elseif ($never_expire && $has_valid_date) {
+                    } elseif ($is_forever && $has_valid_date) {
                         $status = 'Current';
                     } elseif ($st_lower === 'current' || $st_lower === 'taken') {
                         $status = 'Current';
