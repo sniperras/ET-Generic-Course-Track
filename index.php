@@ -785,7 +785,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             </div>
             <div class="flex items-center gap-3">
                 <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
+                <a href="admin/admin_panel.php?page=department_gap_report" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">MRO Management Login</a>
             </div>
+
+
         </div>
     </header>
     <nav class="w-full bg-gradient-to-r from-red-700 via-red-600 to-orange-500 text-white shadow-lg relative">
