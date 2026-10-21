@@ -119,6 +119,7 @@ $course_table_map_new = [
     'course_records_regulation'   => [
         'Aviation Regulation Initial Final Exam',
         'Aviation Regulation Refresher Final Exam',
+         'FAAR Final Exam',
         'Aviation Regulation Refresher Final Exam (outstation)'
     ],
     'course_records_rsmqsm'       => [
@@ -732,8 +733,8 @@ if (empty($preview_data) && !empty($_SESSION['preview_data'])) {
 <!DOCTYPE html>
 <html lang="en">
 
-<head>
-    <meta charset="utf-8">
+<head><meta charset="utf-8">
+    
 
 
     <title>Import Training Records - Auto Route</title>

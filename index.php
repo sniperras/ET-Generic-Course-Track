@@ -740,6 +740,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 <head>
     <meta charset="utf-8">
 
+
     <title>Ethiopian Airlines CourseTrack | Employee Training Status</title>
     <meta name="description" content="Use Ethiopian Airlines CourseTrack to check recorded employee course completion, training expiry dates, and submitted complaint status.">
     <meta name="robots" content="<?= $portalRobotsDirective ?>">
@@ -755,7 +756,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     <meta name="theme-color" content="#588D01">
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/dist/output.css">
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
