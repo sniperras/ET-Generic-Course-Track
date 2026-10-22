@@ -14,6 +14,68 @@ error_reporting(E_ALL);
 
 ob_start();
 
+// =================================================================
+// HELPER: identify the current actor (logged-in admin or 'system')
+// =================================================================
+function current_actor(): string
+{
+    // Try every common session key your auth might store the username under.
+    foreach (['username', 'user', 'admin_username', 'full_name', 'admin_name', 'email'] as $key) {
+        if (!empty($_SESSION[$key]) && is_string($_SESSION[$key])) {
+            $v = trim($_SESSION[$key]);
+            if ($v !== '') return $v;
+        }
+    }
+    return 'system';
+}
+
+// =================================================================
+// ONE-TIME MIGRATION: add LastUpdatedBy to every course_records_* table
+// =================================================================
+function ensure_last_updated_by_columns(PDO $pdo): void
+{
+    static $done = false;
+    if ($done) return;
+    $done = true;
+
+    try {
+        // Find every table matching the course_records_* pattern
+        $tables = $pdo->query("
+            SELECT TABLE_NAME
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME LIKE 'course\\_records\\_%'
+        ")->fetchAll(PDO::FETCH_COLUMN);
+
+        foreach ($tables as $tbl) {
+            // Basic safety: only touch tables that look like ours
+            if (!preg_match('/^course_records_[a-zA-Z0-9_]+$/', $tbl)) continue;
+
+            // Does the column already exist?
+            $hasCol = $pdo->prepare("
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = ?
+                  AND COLUMN_NAME = 'LastUpdatedBy'
+            ");
+            $hasCol->execute([$tbl]);
+            if ((int)$hasCol->fetchColumn() > 0) continue;
+
+            // Add it
+            $pdo->exec("ALTER TABLE `$tbl`
+                        ADD COLUMN `LastUpdatedBy` VARCHAR(100) NULL DEFAULT NULL");
+        }
+    } catch (Throwable $e) {
+        // Non-fatal — the page still works, we just won't be able to
+        // record who updated the row on the very first save after deploy.
+        error_log('ensure_last_updated_by_columns failed: ' . $e->getMessage());
+    }
+}
+
+// Run the migration once per request (it's a no-op after the first deploy)
+ensure_last_updated_by_columns($pdo);
+
 // ============================ SAVE RECORDS ============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
     $emp_id = trim($_POST['emp_id'] ?? '');
@@ -32,6 +94,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
         exit;
     }
 
+    // Who is doing this save?
+    $actor = current_actor();
+
     $updated = 0;
     $errors = [];
     $processed_courses = [];
@@ -39,6 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
     // Debug: Check what we received
     error_log("=== START SAVING RECORDS ===");
     error_log("Employee ID: $emp_id");
+    error_log("Actor: $actor");
 
     // Get all active courses from database to verify IDs
     $all_courses = $pdo->query("SELECT course_id, table_name FROM courses WHERE is_active = 1 AND table_name IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC);
@@ -74,7 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
             // Get the table name from courses table
             $stmt = $pdo->prepare("SELECT table_name FROM courses WHERE course_id = ? AND is_active = 1");
             $stmt->execute([$course_id]);
-            $table_name = trim($stmt->fetchColumn());
+            $table_name = trim((string)$stmt->fetchColumn());
 
             if (!$table_name) {
                 $errors[] = "Course ID $course_id has no table name defined.";
@@ -82,14 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                 continue;
             }
 
-            // Clean the table name (remove any spaces)
-            $table_name = trim($table_name);
-
             try {
                 // Check if table exists, create if not
                 $table_exists = $pdo->query("SHOW TABLES LIKE '$table_name'")->fetch();
                 if (!$table_exists) {
-                    // Create table with proper structure
+                    // Create table with proper structure (now including LastUpdatedBy)
                     $create_sql = "
                         CREATE TABLE `$table_name` (
                             `ID` VARCHAR(50) NOT NULL PRIMARY KEY,
@@ -99,73 +162,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                             `Dept` VARCHAR(255),
                             `CompletedDate` DATE NULL,
                             `Status` VARCHAR(50) DEFAULT 'NA',
-                            `LastUpdated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                            `LastUpdated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                            `LastUpdatedBy` VARCHAR(100) NULL DEFAULT NULL
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                     ";
                     $pdo->exec($create_sql);
                     error_log("Created table: $table_name");
                 } else {
-                    // Check if table has the right structure
-                    $check_columns = $pdo->query("SHOW COLUMNS FROM `$table_name`")->fetchAll(PDO::FETCH_COLUMN);
-
-                    if (in_array('record_id', $check_columns)) {
-                        // Table has old structure - we need to use a different approach
-                        // Check if there's already a record for this employee
-                        $check_sql = "SELECT COUNT(*) FROM `$table_name` WHERE ID = ?";
-                        $check_stmt = $pdo->prepare($check_sql);
-                        $check_stmt->execute([$emp_id]);
-                        $exists = $check_stmt->fetchColumn();
-
-                        if ($exists > 0) {
-                            // Update existing record
-                            $sql = "UPDATE `$table_name` SET 
-                                    NameOfEmployee = ?,
-                                    CC = ?,
-                                    Position = ?,
-                                    Dept = ?,
-                                    CompletedDate = ?,
-                                    Status = ?,
-                                    LastUpdated = CURRENT_TIMESTAMP
-                                    WHERE ID = ?";
-                            $stmt2 = $pdo->prepare($sql);
-                            $result = $stmt2->execute([
-                                $employee['full_name'],
-                                $employee['cost_center'] ?? '',
-                                $employee['position'] ?? '',
-                                $employee['department'] ?? '',
-                                $completed_date,
-                                $status,
-                                $emp_id
-                            ]);
-                        } else {
-                            // Insert new record
-                            $sql = "INSERT INTO `$table_name` 
-                                    (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?)";
-                            $stmt2 = $pdo->prepare($sql);
-                            $result = $stmt2->execute([
-                                $emp_id,
-                                $employee['full_name'],
-                                $employee['cost_center'] ?? '',
-                                $employee['position'] ?? '',
-                                $employee['department'] ?? '',
-                                $completed_date,
-                                $status
-                            ]);
-                        }
-
-                        if ($stmt2->rowCount() > 0) {
-                            $updated++;
-                            error_log("Successfully saved course $course_id to $table_name (using update/insert)");
-                        }
-                        continue; // Skip to next course
+                    // Make sure LastUpdatedBy exists (belt & braces — the
+                    // one-time migration above normally handles this)
+                    $hasCol = $pdo->prepare("
+                        SELECT COUNT(*) FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+                          AND COLUMN_NAME = 'LastUpdatedBy'
+                    ");
+                    $hasCol->execute([$table_name]);
+                    if ((int)$hasCol->fetchColumn() === 0) {
+                        $pdo->exec("ALTER TABLE `$table_name`
+                                    ADD COLUMN `LastUpdatedBy` VARCHAR(100) NULL DEFAULT NULL");
                     }
                 }
 
-                // Standard INSERT/UPDATE for tables with ID as primary key
+                // Check if table has old structure (with record_id instead of ID as PK)
+                $check_columns = $pdo->query("SHOW COLUMNS FROM `$table_name`")->fetchAll(PDO::FETCH_COLUMN);
+
+                if (in_array('record_id', $check_columns)) {
+                    // ── LEGACY TABLE PATH ──
+                    $check_sql = "SELECT COUNT(*) FROM `$table_name` WHERE ID = ?";
+                    $check_stmt = $pdo->prepare($check_sql);
+                    $check_stmt->execute([$emp_id]);
+                    $exists = $check_stmt->fetchColumn();
+
+                    if ($exists > 0) {
+                        // Update existing record
+                        $sql = "UPDATE `$table_name` SET 
+                                NameOfEmployee = ?,
+                                CC = ?,
+                                Position = ?,
+                                Dept = ?,
+                                CompletedDate = ?,
+                                Status = ?,
+                                LastUpdated = CURRENT_TIMESTAMP,
+                                LastUpdatedBy = ?
+                                WHERE ID = ?";
+                        $stmt2 = $pdo->prepare($sql);
+                        $stmt2->execute([
+                            $employee['full_name'],
+                            $employee['cost_center'] ?? '',
+                            $employee['position'] ?? '',
+                            $employee['department'] ?? '',
+                            $completed_date,
+                            $status,
+                            $actor,
+                            $emp_id
+                        ]);
+                    } else {
+                        // Insert new record
+                        $sql = "INSERT INTO `$table_name` 
+                                (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status, LastUpdatedBy)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+                        $stmt2 = $pdo->prepare($sql);
+                        $stmt2->execute([
+                            $emp_id,
+                            $employee['full_name'],
+                            $employee['cost_center'] ?? '',
+                            $employee['position'] ?? '',
+                            $employee['department'] ?? '',
+                            $completed_date,
+                            $status,
+                            $actor
+                        ]);
+                    }
+
+                    if ($stmt2->rowCount() > 0) {
+                        $updated++;
+                        error_log("Successfully saved course $course_id to $table_name (legacy path, actor=$actor)");
+                    }
+                    continue;
+                }
+
+                // ── STANDARD PATH: INSERT ... ON DUPLICATE KEY UPDATE ──
                 $sql = "INSERT INTO `$table_name` 
-                            (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                            (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status, LastUpdatedBy)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE
                             NameOfEmployee = VALUES(NameOfEmployee),
                             CC = VALUES(CC), 
@@ -173,7 +252,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                             Dept = VALUES(Dept),
                             CompletedDate = VALUES(CompletedDate), 
                             Status = VALUES(Status),
-                            LastUpdated = CURRENT_TIMESTAMP";
+                            LastUpdated = CURRENT_TIMESTAMP,
+                            LastUpdatedBy = VALUES(LastUpdatedBy)";
 
                 $stmt2 = $pdo->prepare($sql);
                 $stmt2->execute([
@@ -183,12 +263,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                     $employee['position'] ?? '',
                     $employee['department'] ?? '',
                     $completed_date,
-                    $status
+                    $status,
+                    $actor
                 ]);
 
                 if ($stmt2->rowCount() > 0) {
                     $updated++;
-                    error_log("Successfully saved course $course_id to $table_name - Date: $completed_date, Status: $status");
+                    error_log("Successfully saved course $course_id to $table_name - Date: $completed_date, Status: $status, Actor: $actor");
                 } else {
                     error_log("No changes for course $course_id (data unchanged)");
                 }
@@ -200,11 +281,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                 // Try alternative approach if first fails
                 try {
                     error_log("Trying alternative save method...");
-                    // Simple INSERT IGNORE approach
                     $sql = "INSERT IGNORE INTO `$table_name` 
-                                (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)";
-
+                                (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status, LastUpdatedBy)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
                     $stmt3 = $pdo->prepare($sql);
                     $stmt3->execute([
                         $emp_id,
@@ -213,14 +292,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                         $employee['position'] ?? '',
                         $employee['department'] ?? '',
                         $completed_date,
-                        $status
+                        $status,
+                        $actor
                     ]);
 
                     if ($stmt3->rowCount() > 0) {
                         $updated++;
-                        error_log("Alternative save successful for course $course_id");
+                        error_log("Alternative save successful for course $course_id (actor=$actor)");
                     } else {
-                        // Try UPDATE if INSERT didn't work
                         $sql = "UPDATE `$table_name` SET 
                                 NameOfEmployee = ?,
                                 CC = ?,
@@ -228,9 +307,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                                 Dept = ?,
                                 CompletedDate = ?,
                                 Status = ?,
-                                LastUpdated = CURRENT_TIMESTAMP
+                                LastUpdated = CURRENT_TIMESTAMP,
+                                LastUpdatedBy = ?
                                 WHERE ID = ?";
-
                         $stmt4 = $pdo->prepare($sql);
                         $stmt4->execute([
                             $employee['full_name'],
@@ -239,12 +318,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                             $employee['department'] ?? '',
                             $completed_date,
                             $status,
+                            $actor,
                             $emp_id
                         ]);
-
                         if ($stmt4->rowCount() > 0) {
                             $updated++;
-                            error_log("Update successful for course $course_id");
+                            error_log("Update successful for course $course_id (actor=$actor)");
                         }
                     }
                 } catch (Exception $e2) {
@@ -264,7 +343,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
     if ($updated > 0) {
         $message_text = "$updated record(s) successfully updated!";
         $message_type = "success";
-
         if (!empty($errors)) {
             $message_text .= " (with " . count($errors) . " error" . (count($errors) > 1 ? 's' : '') . ")";
         }
@@ -284,7 +362,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
         'text' => $message_text
     ];
 
-    // Redirect with employee ID
     $redirect_url = "admin_panel.php?page=records";
     if ($emp_id) {
         $redirect_url .= "&emp_id=" . urlencode($emp_id);
@@ -321,12 +398,11 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Update Training Records</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom styles for better UX */
         input[type="date"] {
             font-family: monospace;
             font-size: 16px;
@@ -359,6 +435,21 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
         .status-na {
             color: #6B7280;
             font-style: italic;
+        }
+
+        .actor-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .actor-pill-system {
+            background: #e5e7eb;
+            color: #374151;
         }
     </style>
 </head>
@@ -439,6 +530,7 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                         <th class="px-6 py-5">Course</th>
                                         <th class="px-6 py-5 text-center">Completed Date</th>
                                         <th class="px-6 py-5 text-center">Status</th>
+                                        <th class="px-6 py-5 text-center">Last Updated By</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
@@ -449,11 +541,12 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                         $input_date     = '';
                                         $current_status = 'NA';
                                         $status_class   = 'status-na';
+                                        $last_updated_by = '';
 
                                         // Try to read existing record
                                         try {
                                             if ($table_name && preg_match('/^course_records_[a-zA-Z0-9_]+$/', $table_name)) {
-                                                $sql = "SELECT CompletedDate, Status FROM `$table_name` WHERE ID = ? LIMIT 1";
+                                                $sql = "SELECT CompletedDate, Status, LastUpdatedBy FROM `$table_name` WHERE ID = ? LIMIT 1";
                                                 $stmt = $pdo->prepare($sql);
                                                 $stmt->execute([$emp_id]);
                                                 $rec = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -464,8 +557,8 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                                         $input_date = $ts ? date('Y-m-d', $ts) : '';
                                                     }
                                                     $current_status = $rec['Status'] ?? 'NA';
+                                                    $last_updated_by = trim((string)($rec['LastUpdatedBy'] ?? ''));
 
-                                                    // Set status class
                                                     if ($current_status === 'Current') $status_class = 'status-current';
                                                     elseif ($current_status === 'Expired') $status_class = 'status-expired';
                                                     elseif ($current_status === 'Pending') $status_class = 'status-pending';
@@ -484,7 +577,6 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                                 <?php if ($course['validity_months'] > 0): ?>
                                                     <div class="text-xs text-gray-500 mt-1">Valid for <?= $course['validity_months'] ?> months</div>
                                                 <?php endif; ?>
-                                                <!-- <div class="text-xs text-gray-400 mt-1 font-mono">Table: <?= htmlspecialchars($table_name) ?></div> -->
                                             </td>
                                             <td class="px-6 py-5 text-center">
                                                 <input type="date"
@@ -505,6 +597,16 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                                         </option>
                                                     <?php endforeach; ?>
                                                 </select>
+                                            </td>
+                                            <td class="px-6 py-5 text-center text-sm">
+                                                <?php if ($last_updated_by === ''): ?>
+                                                    <span class="text-gray-400 italic">—</span>
+                                                <?php else: ?>
+                                                    <?php $pillClass = strtolower($last_updated_by) === 'system' ? 'actor-pill actor-pill-system' : 'actor-pill'; ?>
+                                                    <span class="<?= $pillClass ?>" title="<?= htmlspecialchars($last_updated_by) ?>">
+                                                        <?= htmlspecialchars($last_updated_by) ?>
+                                                    </span>
+                                                <?php endif; ?>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -530,21 +632,16 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
     </div>
 
     <script>
-        // JavaScript to enhance user experience
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('recordsForm');
-
-            // Form submission loading indicator
             if (form) {
                 form.addEventListener('submit', function(e) {
-                    // Show loading indicator
                     const submitBtn = form.querySelector('button[type="submit"]');
                     const originalText = submitBtn.innerHTML;
                     submitBtn.innerHTML = '<span class="flex items-center justify-center"><svg class="animate-spin h-5 w-5 mr-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Saving... Please wait.</span>';
                     submitBtn.disabled = true;
                     submitBtn.className = 'bg-gray-500 text-white font-bold text-xl px-20 py-5 rounded-xl shadow-xl opacity-75 cursor-not-allowed';
 
-                    // Re-enable after 10 seconds just in case
                     setTimeout(() => {
                         submitBtn.innerHTML = originalText;
                         submitBtn.disabled = false;

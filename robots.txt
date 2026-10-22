@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /include/
+Disallow: /Script/
+Disallow: /TCPDF/
+Disallow: /vendor/
+Disallow: /logs/
+Disallow: /print_pdf.php
+
+Sitemap: https://coursetrack.etairtv.com/sitemap.xml

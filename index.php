@@ -1,11 +1,49 @@
 <?php
+// Serve crawler files through the PHP front controller as well as the root static files.
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+if ($requestPath === '/robots.txt') {
+    header('Content-Type: text/plain; charset=UTF-8');
+    header('Cache-Control: public, max-age=3600');
+    echo implode("\n", [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /admin/',
+        'Disallow: /include/',
+        'Disallow: /Script/',
+        'Disallow: /TCPDF/',
+        'Disallow: /vendor/',
+        'Disallow: /logs/',
+        'Disallow: /print_pdf.php',
+        '',
+        'Sitemap: https://coursetrack.etairtv.com/sitemap.xml',
+        '',
+    ]);
+    exit;
+}
+if ($requestPath === '/sitemap.xml') {
+    header('Content-Type: application/xml; charset=UTF-8');
+    header('Cache-Control: public, max-age=3600');
+    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+    echo '  <url><loc>https://coursetrack.etairtv.com/about.php</loc></url>' . "\n";
+    echo '</urlset>';
+    exit;
+}
+$lookupResponse = (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET')
+    || isset($_GET['dispute_id'])
+    || isset($_GET['check_dispute_status']);
+$portalRobotsDirective = $lookupResponse
+    ? 'noindex, nofollow, nosnippet'
+    : 'noindex, follow';
+header('X-Robots-Tag: ' . $portalRobotsDirective, true);
+
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// declare(strict_types=1);
 if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/include/db_connect.php';
+require_once __DIR__ . '/include/cc_overrides.php';
 
 // Error handling for AJAX - disable error output for JSON responses
 function handleAjaxError($message)
@@ -28,17 +66,14 @@ const DISPUTE_COOLDOWN_DAYS = 2;
 const FOREVER_THRESHOLD = 999999; // Any validity months >= this value = forever
 
 // Courses that never expire (validity forever) - but still need a completion date to be considered "Taken"
-$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM'];
+$NEVER_EXPIRE_COURSES = ['ESD', 'ETOPS', 'FUEL', 'ETTPM', 'MCM', 'MNX'];
 
 /* --------- Helper Functions --------- */
 function is_always_not_taken_course(string $employee_id, string $course_code): bool
 {
-    // Only apply special handling for this specific employee
     if ($employee_id !== '36689') {
         return false;
     }
-
-    // List of courses that should always show "Not Taken" status for this employee
     $always_not_taken_courses = [
         'B737ASRC',
         'B737NGTOMAX',
@@ -47,8 +82,121 @@ function is_always_not_taken_course(string $employee_id, string $course_code): b
         'B787ASRC',
         'A350SRC'
     ];
-
     return in_array(strtoupper(trim($course_code)), $always_not_taken_courses);
+}
+
+/**
+ * Loads the CC → required-course map from cc_course_requirements.
+ */
+function load_cc_course_map(PDO $pdo): array
+{
+    $map = [];
+    try {
+        $rows = $pdo->query("SELECT cost_center, course_code FROM cc_course_requirements")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            $map[trim($r['cost_center'])][trim($r['course_code'])] = true;
+        }
+    } catch (Exception $e) {
+        return [];
+    }
+    return $map;
+}
+
+/**
+ * Detects management-level positions.
+ */
+function is_sms_management_role(?string $position): bool
+{
+    $pos = strtoupper(trim((string)$position));
+    if ($pos === '') return false;
+
+    return (strpos($pos, 'MANAGER') !== false)
+        || (strpos($pos, 'MGR')     !== false)
+        || (strpos($pos, 'MD')      !== false)
+        || (strpos($pos, 'TEAM LEADER') !== false)
+        || (strpos($pos, 'DIR')     !== false);
+}
+
+/**
+ * Position eligibility — position rules ONLY.
+ */
+function is_position_eligible(string $course_code, ?string $position): bool
+{
+    $code = strtoupper(trim($course_code));
+    $pos  = strtoupper(trim((string)$position));
+
+    // Normalize whitespace (fixes double spaces in positions like "TECHNICIAN  IV")
+    $pos  = preg_replace('/[\x{00A0}\x{2000}-\x{200B}\x{202F}\x{205F}\x{3000}\s]+/u', ' ', $pos);
+
+    $is_mgmt = is_sms_management_role($position);
+
+    if ($code === 'SMS-MGR')  return $is_mgmt;
+    if ($code === 'SMSMRO')   return !$is_mgmt;
+
+    if ($code === 'ETTPM') {
+        return (strpos($pos, 'TEAM LEADER') !== false)
+            || (strpos($pos, 'DIR') !== false)
+            || (strpos($pos, 'MANAGER') !== false)
+            || (strpos($pos, 'MGR') !== false);
+    }
+
+    if ($code === 'IP') {
+        return (strpos($pos, 'TECHNICIAN III') !== false)
+            || (strpos($pos, 'TECHNICIAN IV')  !== false)
+            || (strpos($pos, 'TEAM LEADER')    !== false)
+            || (strpos($pos, 'FLEET')          !== false)
+            || (strpos($pos, 'INSPECTOR')      !== false)
+            || (strpos($pos, 'MANAGER')        !== false);
+    }
+
+    if ($code === 'MEL') {
+        if (strpos($pos, 'MECHANIC') !== false) return false;
+    }
+
+    if ($code === 'DGR' || $code === 'RCAT') {
+        if (strpos($pos, 'TEAM LEADER') !== false || strpos($pos, 'MGR') !== false || strpos($pos, 'MANAGER') !== false) return false;
+    }
+
+    return true;
+}
+
+/**
+ * Combined eligibility.
+ * 1. Check SKIP overrides (wins over everything).
+ * 2. Check TAKE overrides (wins over CC map + position).
+ * 3. Fall back to CC map AND position rules.
+ */
+function is_employee_eligible_for_course(array $cc_course_map, array $cc_dept_map, ?string $cc, string $course_code, ?string $position): bool
+{
+    global $cc_position_overrides;
+
+    $emp_dept = $cc_dept_map[trim((string)$cc)] ?? '';
+
+    // STEP -1 — SKIP override (highest priority)
+    if (
+        !empty($cc_position_overrides)
+        && is_forced_skipped_by_override($cc_position_overrides, $cc, $position, $course_code, $emp_dept)
+    ) {
+        return false;
+    }
+
+    // STEP 0 — TAKE override (bypasses CC map and position)
+    if (
+        !empty($cc_position_overrides)
+        && is_forced_applicable_by_override($cc_position_overrides, $cc, $position, $course_code, $emp_dept)
+    ) {
+        return true;
+    }
+
+    // STEP 1 — Standard CC map gate
+    if (empty($cc_course_map)) {
+        return is_position_eligible($course_code, $position);
+    }
+    if ($cc === null || trim($cc) === '') return false;
+    if (!isset($cc_course_map[$cc][$course_code])) return false;
+
+    // STEP 2 — Standard position rules
+    return is_position_eligible($course_code, $position);
 }
 
 function safe_table(string $t): bool
@@ -109,7 +257,7 @@ function h($v): string
 function formatValidity($months): string
 {
     if ($months >= FOREVER_THRESHOLD) {
-        return 'Forever';
+        return 'One-Time';
     }
     return $months . ' months';
 }
@@ -125,6 +273,8 @@ function badge_class_by_gap(string $gap): string
             return 'bg-amber-500 text-white';
         case 'ok':
             return 'bg-green-600 text-white';
+        case 'na':
+            return 'bg-slate-400 text-white';
         default:
             return 'bg-gray-500 text-white';
     }
@@ -163,7 +313,6 @@ function getLastImportDate($pdo): ?string
                 }
             }
         } catch (Exception $e) {
-            // Skip tables that don't have LastUpdated column
         }
     }
 
@@ -204,6 +353,19 @@ $courses = $pdo->query("
     ORDER BY course_code
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+/* --------- Load Maps --------- */
+$cc_course_map = load_cc_course_map($pdo);
+$cc_position_overrides = load_cc_position_overrides($pdo);
+
+$cc_dept_map = [];
+try {
+    $rows = $pdo->query("SELECT cost_center, department FROM cost_center_departments")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $r) {
+        $cc_dept_map[trim($r['cost_center'])] = trim($r['department']);
+    }
+} catch (Exception $e) {
+}
+
 /* --------- Handle employee status check --------- */
 $employee = null;
 $emp_id_submitted = '';
@@ -225,13 +387,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
             $employee = null;
             $error = "Employee ID not found or inactive.";
         } else {
-            // Process each course
             foreach ($courses as $c) {
                 $table = trim($c['table_name']);
                 $course_code = $c['course_code'];
                 $course_name = $c['course_name'];
                 $validity_months = (int)$c['validity_months'];
-                $never_expire = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
+
+                // Base global forever flag
+                $is_global_forever = in_array($course_code, $NEVER_EXPIRE_COURSES) || $validity_months >= FOREVER_THRESHOLD;
+
+                // Not-Applicable gate — checks CC map + Dept map + position rules + overrides
+                $cc  = $employee['cost_center'] ?? '';
+                $pos = $employee['position'] ?? '';
+                $emp_dept = $cc_dept_map[$cc] ?? '';
+
+                if (!is_employee_eligible_for_course($cc_course_map, $cc_dept_map, $cc, $course_code, $pos)) {
+                    $results[] = [
+                        'course_code'     => $course_code,
+                        'course_name'     => $course_name,
+                        'completed_raw'   => null,
+                        'completed'       => null,
+                        'status_raw'      => 'Not Applicable',
+                        'status'          => 'Not Applicable',
+                        'expiry'          => null,
+                        'gap_type'        => 'na',
+                        'validity_months' => $validity_months
+                    ];
+                    continue;
+                }
+
+                // Check if this specific employee has a FOREVER override rule
+                $is_forever = $is_global_forever || is_forced_forever_by_override(
+                    $cc_position_overrides,
+                    $cc,
+                    $pos,
+                    $course_code,
+                    $emp_dept
+                );
 
                 // Get employee ID for special handling
                 $employee_id = $employee['employee_id'];
@@ -239,7 +431,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                 // Check if this is employee 36689 with a special course that should always show "Not Taken"
                 $always_not_taken = is_always_not_taken_course($employee_id, $course_code);
 
-                // For employee 36689 with special courses - always show "Not Taken"
                 if ($always_not_taken) {
                     $row = [
                         'course_code' => $course_code,
@@ -253,7 +444,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                         'validity_months' => $validity_months
                     ];
                     $results[] = $row;
-                    continue; // Skip database lookup for these courses
+                    continue;
                 }
 
                 $row = [
@@ -319,8 +510,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['employee_id']) && !i
                         continue;
                     }
 
-                    // For never-expire courses with a valid date -> show as "Current"
-                    if ($never_expire && $parsed !== null && $parsed !== '') {
+                    // For never-expire courses (or per-employee FOREVER overrides) with a valid date -> show as "Current"
+                    if ($is_forever && $parsed !== null && $parsed !== '') {
                         $row['gap_type'] = 'ok';
                         $row['status'] = 'Current';
                         $results[] = $row;
@@ -444,10 +635,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['raise_dispute'])) {
 
     if (empty($errors_dispute)) {
         try {
-            // Check if training_disputes table exists
             $table_check = $pdo->query("SHOW TABLES LIKE 'training_disputes'")->fetch();
             if (!$table_check) {
-                // Create the table if it doesn't exist
                 $create_sql = "
                     CREATE TABLE `training_disputes` (
                         `dispute_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -540,7 +729,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
         echo json_encode(['can_proceed' => true]);
     } catch (Exception $e) {
-        // Table might not exist yet (first complaint), that's fine - allow proceeding
         echo json_encode(['can_proceed' => true]);
     }
     exit;
@@ -551,17 +739,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
 <head>
     <meta charset="utf-8">
-    <title>Generic Course Track — Check Your Training Status</title>
+
+
+    <title>Ethiopian Airlines CourseTrack | Employee Training Status</title>
+    <meta name="description" content="Use Ethiopian Airlines CourseTrack to check recorded employee course completion, training expiry dates, and submitted complaint status.">
+    <meta name="robots" content="<?= $portalRobotsDirective ?>">
+    <meta property="og:title" content="Ethiopian Airlines CourseTrack | Employee Training Status">
+    <meta property="og:description" content="Check course completion, training expiry dates, and submitted course complaint updates with CourseTrack.">
+    <meta property="og:url" content="https://coursetrack.etairtv.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="en_ET">
+    <meta property="og:site_name" content="Ethiopian Airlines CourseTrack">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Ethiopian Airlines CourseTrack | Employee Training Status">
+    <meta name="twitter:description" content="Check course completion, training expiry dates, and submitted course complaint updates with CourseTrack.">
+    <meta name="theme-color" content="#588D01">
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/dist/output.css">
+    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
         }
 
-        /* Limit date picker to max today */
         input[type="date"] {
             max-width: 160px;
         }
@@ -573,8 +775,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 </head>
 
 <body class="bg-gray-50 min-h-screen flex flex-col">
-
-    <header class="bg-blue-900 text-white shadow">
+    <?php include __DIR__ . '/training_notice_popup.php'; ?>
+    <header class="bg-[#588D01] text-white shadow">
         <div class="max-w-6xl mx-auto px-6 py-5 flex justify-between items-center">
             <div class="flex items-center gap-3">
                 <img src="./img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
@@ -583,12 +785,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
                 </div>
             </div>
-            <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
+            <div class="flex items-center gap-3">
+                <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
+                <a href="admin/admin_panel.php?page=department_gap_report" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">MRO Management Login</a>
+            </div>
+
+
         </div>
     </header>
-
+    <nav class="w-full bg-gradient-to-r from-red-700 via-red-600 to-orange-500 text-white shadow-lg relative">
+        <div class="max-w-6xl mx-auto px-6">
+            <ul class="flex flex-wrap items-center gap-x-1 gap-y-1 py-1.5 text-sm">
+                <li class="flex items-center gap-1.5 px-3 py-1.5 font-bold uppercase tracking-wider text-amber-300">
+                    <span>Useful Links</span>
+                    <span class="relative flex h-3 w-3 items-center justify-center">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-300"></span>
+                    </span>
+                    <span class="animate-bounce font-extrabold text-lg leading-none ml-0.5">👉</span>
+                </li>
+                <li>
+                    <a href="https://deftrack.etairtv.com/live_statics.php"
+                        target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-50 hover:bg-blue-700 hover:text-white transition-colors font-medium">
+                        <span>🛠️</span>
+                        <span>All Fleet ADD FOLLOW UP (Open Fault Track)</span>
+                        <span class="text-blue-300 text-xs">↗</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="http://etlocker.infinityfree.me"
+                        target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-50 hover:bg-blue-700 hover:text-white transition-colors font-medium">
+                        <span>🔐</span>
+                        <span>ET Locker Verifier</span>
+                        <span class="text-blue-300 text-xs">↗</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="https://etairtv.com/?mode=lmt"
+                        target="_blank" rel="noopener"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-50 hover:bg-blue-700 hover:text-white transition-colors font-medium">
+                        <span>📺</span>
+                        <span>ET AirTV</span>
+                        <span class="text-blue-300 text-xs">↗</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </nav>
     <main class="max-w-6xl mx-auto px-6 py-10 flex-grow">
-        <!-- Dual forms -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             <div class="bg-white rounded-2xl shadow-lg p-8">
                 <h2 class="text-2xl font-bold mb-4">Check Your Training Status</h2>
@@ -598,12 +844,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                         <input name="employee_id" required value="<?= h($emp_id_submitted) ?>"
                             class="flex-1 px-4 py-3 border rounded-lg text-lg font-mono focus:outline-none focus:ring-2 focus:ring-blue-200"
                             placeholder="e.g. 19962">
-                        <button type="submit" class="bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-blue-800">Check Status</button>
+                        <button type="submit" class="bg-[#588D01] text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-[#3B5E01] transition">Check Status</button>
                     </div>
                 </form>
             </div>
 
-            <div class="bg-white rounded-2xl shadow-lg p-8">
+            <div id="complaint-status" class="bg-white rounded-2xl shadow-lg p-8">
                 <h2 class="text-2xl font-bold mb-4">Check Complaint Status</h2>
                 <form method="GET" class="max-w-full">
                     <label class="block text-sm font-medium text-gray-600 mb-1">Complaint ID</label>
@@ -619,7 +865,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             </div>
         </div>
 
-        <!-- Complaint Status Result -->
         <?php if ($dispute_error !== ''): ?>
             <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6">
                 <div class="font-semibold">Error:</div>
@@ -758,7 +1003,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             </div>
         <?php endif; ?>
 
-        <!-- Employee Status Result -->
         <?php if ($error !== ''): ?>
             <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6"><?= h($error) ?></div>
         <?php endif; ?>
@@ -766,7 +1010,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
         <?php if ($employee): ?>
             <div id="printableArea">
                 <div class="bg-white rounded-2xl shadow-lg overflow-hidden mb-8">
-                    <div class="bg-gradient-to-r from-blue-800 to-blue-900 text-white p-6">
+                    <div class="bg-[#588D01] text-white p-6">
                         <div class="flex items-center justify-between">
                             <div>
                                 <div class="text-sm">Employee</div>
@@ -774,6 +1018,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                 <div class="text-sm opacity-90 mt-1">
                                     ID: <span class="font-mono"><?= h($employee['employee_id']) ?></span> —
                                     CC: <?= h($employee['cost_center'] ?? 'N/A') ?> •
+                                    Department: <?= h($employee['department'] ?? 'N/A') ?> •
                                     <?= h($employee['position'] ?? 'N/A') ?>
                                 </div>
                             </div>
@@ -784,7 +1029,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     </div>
 
                     <div class="p-6">
-                        <!-- AJAX Messages -->
                         <div id="ajaxMessageContainer">
                             <?php if ($dispute_ok && !isset($_SERVER['HTTP_X_REQUESTED_WITH'])): ?>
                                 <div class="mb-4 p-4 rounded bg-green-100 text-green-800 auto-dismiss-message"><?= h($dispute_msg) ?></div>
@@ -799,7 +1043,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                             <?php endif; ?>
                         </div>
 
-                        <!-- Complaint Button and Last Import Date -->
                         <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
                             <div class="flex gap-3">
                                 <button id="openDisputeBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold">
@@ -823,14 +1066,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
                         </div>
 
-                        <!-- Courses Table -->
                         <div class="overflow-x-auto">
                             <table class="w-full table-auto">
                                 <thead class="bg-gray-100 text-gray-700">
                                     <tr>
                                         <th class="p-3 text-left">Course</th>
-                                        <th class="p-3 text-center">Completed Date</th>
-                                        <th class="p-3 text-center">Expiry Date</th>
+                                        <th class="p-3 text-center">Course Completed Date</th>
+                                        <th class="p-3 text-center">Course Expiry Date</th>
                                         <th class="p-3 text-center">Status</th>
                                         <th class="p-3 text-center">Validity</th>
                                         <th class="p-3 text-center">Note</th>
@@ -875,7 +1117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                                         echo 'Up to date';
                                                         break;
                                                     case 'na':
-                                                        echo 'Not available';
+                                                        echo 'Not applicable for your section';
                                                         break;
                                                     default:
                                                         echo h((string)($r['status_raw'] ?? ''));
@@ -958,14 +1200,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
 
     </main>
 
-    <!-- FOOTER: stays at bottom, matches original blue-950 with subtle text, compact -->
-    <footer class="bg-blue-950 text-gray-300 py-3 flex-shrink-0">
+    <footer class="bg-[#588D01] text-white py-3 flex-shrink-0">
         <div class="w-full max-w-7xl mx-auto px-5 text-center">
             <p class="text-xs">
                 © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
             </p>
             <p class="text-[11px] mt-1 opacity-75">
-                MRO Course Track System • Powered by NATNAEL BIZUNEH
+                MRO Course Track System • Developed by NATNAEL BIZUNEH
             </p>
         </div>
     </footer>
@@ -988,16 +1229,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             const EMPLOYEE_ID = '<?= h($employee['employee_id'] ?? '') ?>';
             const STORAGE_KEY = `dispute_form_data_${EMPLOYEE_ID}`;
 
-            // Get today's date in YYYY-MM-DD format for max date restriction
             const today = new Date().toISOString().split('T')[0];
 
             function getSavedFormData() {
                 try {
                     const saved = localStorage.getItem(STORAGE_KEY);
                     if (saved) return JSON.parse(saved);
-                } catch (e) {
-                    console.error('Error loading saved form data:', e);
-                }
+                } catch (e) {}
                 return {
                     courses: [],
                     comment: ''
@@ -1007,36 +1245,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             function saveFormDataToStorage(data) {
                 try {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-                } catch (e) {
-                    console.error('Error saving form data:', e);
-                }
+                } catch (e) {}
             }
 
             function clearFormDataFromStorage() {
                 try {
                     localStorage.removeItem(STORAGE_KEY);
-                } catch (e) {
-                    console.error('Error clearing form data:', e);
-                }
+                } catch (e) {}
             }
 
-            // Check cooldown before opening modal
             async function checkCooldownAndOpenModal() {
                 if (!EMPLOYEE_ID) {
                     showAjaxMessage(false, 'Employee ID not found. Please refresh the page.');
                     return;
                 }
-
-                // Show loading state on button
                 const originalText = openBtn.textContent;
                 openBtn.disabled = true;
                 openBtn.textContent = 'Checking...';
-
                 try {
                     const formData = new FormData();
                     formData.append('check_cooldown', '1');
                     formData.append('employee_id', EMPLOYEE_ID);
-
                     const response = await fetch(window.location.href, {
                         method: 'POST',
                         body: formData,
@@ -1044,19 +1273,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                             'X-Requested-With': 'XMLHttpRequest'
                         }
                     });
-
                     const data = await response.json();
-
-                    if (data.can_proceed) {
-                        // No cooldown - open modal
-                        openModal();
-                    } else {
-                        // Cooldown active - show message in ajaxMessageContainer
-                        showAjaxMessage(false, data.message);
-                    }
+                    if (data.can_proceed) openModal();
+                    else showAjaxMessage(false, data.message);
                 } catch (error) {
-                    console.error('Cooldown check error:', error);
-                    // If error, allow proceeding (or show error message)
                     showAjaxMessage(false, 'Unable to check complaint status. Please try again later.');
                 } finally {
                     openBtn.disabled = false;
@@ -1085,7 +1305,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 modal.classList.remove('flex');
             }
 
-            // Use cooldown check when clicking the button
             openBtn?.addEventListener('click', checkCooldownAndOpenModal);
             closeBtn?.addEventListener('click', closeModal);
             modal?.addEventListener('click', function(e) {
@@ -1134,7 +1353,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 dateInput.name = `dispute_course_date[]`;
                 dateInput.className = 'w-40 px-3 py-2 border rounded';
                 dateInput.value = courseDate;
-                // Set max date to today (cannot select future dates)
                 dateInput.max = today;
                 rowDiv.appendChild(removeBtn);
                 rowDiv.appendChild(courseInput);
@@ -1182,12 +1400,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                 div.className = `mb-4 p-4 rounded ${success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`;
                 div.textContent = message;
                 ajaxMessageContainer.appendChild(div);
-                // Auto scroll to message
                 div.scrollIntoView({
                     behavior: 'smooth',
                     block: 'center'
                 });
-                // Auto hide after 20 seconds
                 setTimeout(() => {
                     if (div.parentNode) div.remove();
                 }, 20000);
@@ -1244,9 +1460,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                         }
                     })
                     .then(res => {
-                        if (!res.ok) {
-                            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-                        }
+                        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                         return res.json();
                     })
                     .then(data => {
@@ -1255,8 +1469,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                             closeModal();
                             setTimeout(() => {
                                 clearAllCourseRowsAndComment();
-                                const msgDiv = ajaxMessageContainer.querySelector('.bg-green-100');
-                                // if (msgDiv) setTimeout(() => msgDiv.remove(), 5000);
                             }, 500);
                         } else {
                             const errs = data.errors || [data.message || 'Submission failed'];
@@ -1271,7 +1483,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                         }
                     })
                     .catch(err => {
-                        console.error('Fetch error:', err);
                         modalErrors.innerHTML = `<div class="mb-4 p-3 rounded bg-red-50 text-red-800">Network or server error: ${err.message}</div>`;
                     })
                     .finally(() => {
@@ -1280,7 +1491,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     });
             });
 
-            // Auto-dismiss non-AJAX messages after 20 seconds
             document.querySelectorAll('.auto-dismiss-message').forEach(function(message) {
                 setTimeout(function() {
                     if (message && message.parentNode) {
