@@ -756,8 +756,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     <meta name="theme-color" content="#588D01">
     <link rel="icon" type="image/png" href="img/ethiopian_logo.ico">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <link rel="stylesheet" href="/dist/output.css">
-    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -781,16 +780,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             <div class="flex items-center gap-3">
                 <img src="./img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
                 <div>
-                    <h1 class="text-2xl font-bold">Generic Course Track</h1>
+                    <h1 class="text-2xl font-bold">MRO Employees Training Tracker</h1>
                     <p class="text-sm opacity-80">Check your training & expiry status by entering your Employee ID</p>
+                    <p class="text-[11px] text-white/70 mt-0.5">
+                        Integrated with Ethiopian Airlines LMS (<a href="https://learning1.ethiopianairlines.com/" target="_blank" class="underline hover:text-white">learning1.ethiopianairlines.com</a>)
+                    </p>
                 </div>
             </div>
             <div class="flex items-center gap-3">
                 <a href="admin/admin_login.php" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">HR Login</a>
                 <a href="admin/admin_panel.php?page=department_gap_report" class="bg-white text-blue-900 px-4 py-2 rounded font-semibold shadow">MRO Management Login</a>
             </div>
-
-
         </div>
     </header>
     <nav class="w-full bg-gradient-to-r from-red-700 via-red-600 to-orange-500 text-white shadow-lg relative">
@@ -865,11 +865,199 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             </div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════════════
+             ERROR BANNERS — shown ABOVE the notice card
+             ═══════════════════════════════════════════════════════════ -->
         <?php if ($dispute_error !== ''): ?>
             <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6">
                 <div class="font-semibold">Error:</div>
                 <p><?= h($dispute_error) ?></p>
             </div>
+        <?php endif; ?>
+
+        <?php if ($error !== ''): ?>
+            <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6"><?= h($error) ?></div>
+        <?php endif; ?>
+
+        <?php if (!$employee && !$dispute_status_result): ?>
+            <!-- ═══════════════════════════════════════════════════════════
+             Static "Training is Mandatory" notice card
+             Only visible BEFORE the user looks up an employee or complaint.
+             Hides automatically once results are shown.
+             ═══════════════════════════════════════════════════════════ -->
+            <div id="inlineTrainingNotice" class="mb-8">
+                <div class="rounded-2xl shadow-xl overflow-hidden" style="background: linear-gradient(160deg,#06301C,#14773F);">
+                    <div class="relative">
+
+                        <!-- Decorative floating circles -->
+                        <div class="pointer-events-none absolute -top-24 -right-24 w-96 h-96 rounded-full bg-yellow-400/20 animate-pulse"></div>
+                        <div class="pointer-events-none absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-white/5"></div>
+
+                        <div class="relative z-[1] p-6 md:p-8 text-white">
+
+                            <!-- Badge -->
+                            <span class="inline-flex items-center gap-2 bg-[#FFB800] text-[#06301C] font-extrabold tracking-wider px-4 py-1.5 rounded-full text-xs shadow-md">
+                                <span class="w-5 h-5 rounded-full bg-[#06301C] text-[#FFB800] inline-flex items-center justify-center text-xs font-black">!</span>
+                                IMPORTANT NOTICE
+                            </span>
+
+                            <!-- Title -->
+                            <h1 class="text-3xl md:text-4xl font-extrabold mt-3 mb-1.5 leading-tight">
+                                <span style="background:linear-gradient(90deg,#FFB800,#9be15d,#FFB800);background-size:200%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:tnpShine 3s linear infinite;">
+                                    Training is Mandatory.
+                                </span>
+                            </h1>
+                            <p class="text-[#C9EBD6] text-sm md:text-base">
+                                Keep your training up to date — every employee, every time.
+                            </p>
+
+                            <!-- Cards -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
+
+                                <!-- All Employees -->
+                                <div class="bg-white text-[#06301C] rounded-xl overflow-hidden shadow-md">
+                                    <h2 class="flex items-center gap-2 px-4 py-2.5 text-white text-sm md:text-base font-bold"
+                                        style="background: linear-gradient(90deg,#2EAD5F,#5CCB88);">
+                                        👤 ALL EMPLOYEES
+                                    </h2>
+                                    <ul class="p-2.5">
+                                        <li class="tnp-check flex items-start gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-[#EEF8F2] transition select-none"
+                                            data-group="emp">
+                                            <div class="min-w-0">
+                                                <b class="block text-sm md:text-[15px]">Own your training</b>
+                                                <small class="text-[#4A6657] text-xs md:text-sm">Follow your personal training plan &amp; schedule.</small>
+                                            </div>
+                                        </li>
+                                        <li class="tnp-check flex items-start gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-[#EEF8F2] transition select-none"
+                                            data-group="emp">
+                                            <div class="min-w-0">
+                                                <b class="block text-sm md:text-[15px]">Attend &amp; pass</b>
+                                                <small class="text-[#4A6657] text-xs md:text-sm">Join every scheduled course and pass all exams.</small>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+
+                                <!-- Team Leaders -->
+                                <div class="bg-white text-[#06301C] rounded-xl overflow-hidden shadow-md">
+                                    <h2 class="flex items-center gap-2 px-4 py-2.5 text-white text-sm md:text-base font-bold"
+                                        style="background: linear-gradient(90deg,#0B6E4F,#1FA37A);">
+                                        ⭐ TEAM LEADERS
+                                    </h2>
+                                    <ul class="p-2.5">
+                                        <li class="tnp-check flex items-start gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-[#EEF8F2] transition select-none"
+                                            data-group="tl">
+                                            <div class="min-w-0">
+                                                <b class="block text-sm md:text-[15px]">Follow up</b>
+                                                <small class="text-[#4A6657] text-xs md:text-sm">Check each team member's training status.</small>
+                                            </div>
+                                        </li>
+                                        <li class="tnp-check flex items-start gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-[#EEF8F2] transition select-none"
+                                            data-group="tl">
+                                            <div class="min-w-0">
+                                                <b class="block text-sm md:text-[15px]">Enforce</b>
+                                                <small class="text-[#4A6657] text-xs md:text-sm">Make sure no one misses required training.</small>
+                                            </div>
+                                        </li>
+                                        <li class="tnp-check flex items-start gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-[#EEF8F2] transition select-none"
+                                            data-group="tl">
+                                            <div class="min-w-0">
+                                                <b class="block text-sm md:text-[15px]">Keep it current</b>
+                                                <small class="text-[#4A6657] text-xs md:text-sm">No overdue or expired training in your team.</small>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Reminder chips -->
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+                                <div class="bg-white/10 border border-white/20 rounded-xl px-4 py-3">
+                                    <strong class="block text-xl text-[#FFB800]">2 yrs</strong>
+                                    <span class="text-xs text-[#E1F5E9] leading-tight block mt-0.5">Refresher training required every 2 years</span>
+                                </div>
+                                <div class="bg-white/10 border border-white/20 rounded-xl px-4 py-3">
+                                    <strong class="block text-xl text-[#FFB800]">Latest</strong>
+                                    <span class="text-xs text-[#E1F5E9] leading-tight block mt-0.5">Use the latest ETTPM revision from the Portal</span>
+                                </div>
+                                <div class="bg-white/10 border border-white/20 rounded-xl px-4 py-3">
+                                    <strong class="block text-xl text-[#FFB800]">Safety</strong>
+                                    <span class="text-xs text-[#E1F5E9] leading-tight block mt-0.5">Qualified people keep aircraft safe</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Footer actions -->
+                            <div class="flex flex-wrap gap-3 justify-between items-center mt-4">
+                                <div>
+                                    <small class="text-[#C9EBD6] block text-sm">
+                                        Ethiopian MRO | ETTPM &nbsp;•&nbsp;
+                                        <b class="text-[#FFB800]">Train • Qualify • Fly Safe</b>
+                                    </small>
+                                    <small class="text-xs text-[#C9EBD6] block mt-1" id="tnpHint">
+                                        Tap each point to tick it off.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gradient title animation for the inline notice -->
+            <style>
+                @keyframes tnpShine {
+                    to {
+                        background-position: 200%;
+                    }
+                }
+            </style>
+
+            <!-- Tick-off behavior for the inline notice (scoped to #inlineTrainingNotice) -->
+            <script>
+                (function() {
+                    const card = document.getElementById('inlineTrainingNotice');
+                    if (!card) return;
+
+                    const items = card.querySelectorAll('.tnp-check');
+                    const progress = card.querySelector('#tnpProgress');
+                    const hintEl = card.querySelector('#tnpHint');
+                    if (!items.length || !progress) return;
+
+                    function updateProgress() {
+                        const done = Array.from(items).filter(li => li.classList.contains('done')).length;
+                        const total = items.length;
+                        const pct = total ? (done / total) * 100 : 0;
+                        progress.style.width = pct + '%';
+
+                        items.forEach(li => {
+                            const ck = li.querySelector('.tnp-ck');
+                            if (!ck) return;
+                            const group = li.dataset.group || 'emp';
+                            const color = group === 'tl' ? '#0B6E4F' : '#2EAD5F';
+                            if (li.classList.contains('done')) {
+                                ck.style.background = color;
+                                ck.style.color = '#fff';
+                                ck.style.transform = 'scale(1.15) rotate(360deg)';
+                            } else {
+                                ck.style.background = '';
+                                ck.style.color = 'transparent';
+                                ck.style.transform = '';
+                            }
+                        });
+
+                        
+                    }
+
+                    items.forEach(li => {
+                        li.addEventListener('click', function() {
+                            li.classList.toggle('done');
+                            updateProgress();
+                        });
+                    });
+
+                    updateProgress();
+                })();
+            </script>
         <?php endif; ?>
 
         <?php if ($dispute_status_result): ?>
@@ -1001,10 +1189,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                     </div>
                 </div>
             </div>
-        <?php endif; ?>
-
-        <?php if ($error !== ''): ?>
-            <div class="bg-red-100 border border-red-300 text-red-700 p-6 rounded-lg mb-6"><?= h($error) ?></div>
         <?php endif; ?>
 
         <?php if ($employee): ?>
@@ -1203,7 +1387,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     <footer class="bg-[#588D01] text-white py-3 flex-shrink-0">
         <div class="w-full max-w-7xl mx-auto px-5 text-center">
             <p class="text-xs">
-                © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
+                © 2025 - 2026 <span class="font-semibold text-white">MRO Employees Training Tracker</span>. All rights reserved.
             </p>
             <p class="text-[11px] mt-1 opacity-75">
                 MRO Course Track System • Developed by NATNAEL BIZUNEH
