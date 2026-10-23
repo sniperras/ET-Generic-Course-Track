@@ -1,5 +1,6 @@
 {
     "require": {
-        "tecnickcom/tc-lib-pdf": "^8.2"
+        "tecnickcom/tc-lib-pdf": "^8.2",
+        "geoip2/geoip2": "~3.0"
     }
 }
