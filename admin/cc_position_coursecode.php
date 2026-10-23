@@ -27,22 +27,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $raw     = trim((string)($_POST['course_codes']   ?? ''));
         $note    = trim((string)($_POST['note']           ?? ''));
         $rule    = $_POST['rule_type'] ?? 'take';
-
+        
         if (!in_array($rule, ['take', 'skip', 'forever'], true)) $rule = 'take';
         if ($any_cc) $cc = '*';
 
         // ── Validation ──
         if ($raw === '') {
             $flash = ['type' => 'error', 'text' => 'You must provide at least one course code.'];
-        }
+        } 
         // Prevent global SKIP/FOREVER rules that hit absolutely everyone
         elseif ($rule !== 'take' && $cc === '*' && $dept === '' && $pos === '') {
             $flash = ['type' => 'error', 'text' => 'Global rules (Any CC + Any Dept + Any Pos) are not allowed for SKIP/FOREVER. Please add at least a Department or Position.'];
-        }
+        } 
         // Must target at least one thing
         elseif ($cc === '' && $dept === '' && $pos === '') {
             $flash = ['type' => 'error', 'text' => 'You must specify a Cost Center, Department, or Position.'];
-        } else {
+        } 
+        else {
             $parts = preg_split('/[\s,]+/', strtoupper($raw), -1, PREG_SPLIT_NO_EMPTY);
             $codes = array_values(array_unique($parts));
 
@@ -89,7 +90,7 @@ $grouped = [];
 foreach ($rows as $r) {
     $rt  = $r['rule_type'] ?? 'take';
     if (!in_array($rt, ['take', 'skip', 'forever'], true)) $rt = 'take';
-    $key = $rt . '||' . $r['cost_center'] . '||' . ($r['department'] ?? '') . '||' . $r['position_match'];
+    $key = $rt . '||' . $r['cost_center'] . '||' . ($r['department']??'') . '||' . $r['position_match'];
     if (!isset($grouped[$key])) {
         $grouped[$key] = [
             'rule_type'      => $rt,
@@ -111,77 +112,21 @@ $all_depts = $pdo->query("SELECT DISTINCT department FROM cost_center_department
 
 <head>
     <meta charset="utf-8">
-
     <title>CC + Dept + Position → Course Overrides</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body {
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
-        }
-
-        .ov-table th,
-        .ov-table td {
-            border: 1px solid #e5e7eb;
-            padding: 8px 10px;
-            vertical-align: middle;
-        }
-
-        .ov-table thead th {
-            background: #1e3a8a;
-            color: #fff;
-            font-weight: 600;
-        }
-
-        .chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 2px 8px;
-            border-radius: 9999px;
-            font-size: 12px;
-            font-weight: 600;
-            margin: 2px;
-        }
-
-        .chip-take {
-            background: #dcfce7;
-            color: #166534;
-        }
-
-        .chip-skip {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-
-        .chip-forever {
-            background: #e0f2fe;
-            color: #0c4a6e;
-        }
-
-        .rule-badge {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: .5px;
-        }
-
-        .rule-badge.take {
-            background: #10b981;
-            color: #fff;
-        }
-
-        .rule-badge.skip {
-            background: #dc2626;
-            color: #fff;
-        }
-
-        .rule-badge.forever {
-            background: #0284c7;
-            color: #fff;
-        }
+        body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
+        .ov-table th, .ov-table td { border: 1px solid #e5e7eb; padding: 8px 10px; vertical-align: middle; }
+        .ov-table thead th { background: #1e3a8a; color: #fff; font-weight: 600; }
+        .chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: 600; margin: 2px; }
+        .chip-take { background: #dcfce7; color: #166534; }
+        .chip-skip { background: #fee2e2; color: #991b1b; }
+        .chip-forever { background: #e0f2fe; color: #0c4a6e; }
+        .rule-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: .5px; }
+        .rule-badge.take { background: #10b981; color: #fff; }
+        .rule-badge.skip { background: #dc2626; color: #fff; }
+        .rule-badge.forever { background: #0284c7; color: #fff; }
     </style>
 </head>
 
@@ -269,7 +214,7 @@ $all_depts = $pdo->query("SELECT DISTINCT department FROM cost_center_department
                     </button>
                 </div>
             </form>
-
+            
             <div class="text-xs text-gray-600 mt-4 space-y-1 bg-gray-50 p-3 rounded">
                 <p><strong>How filtering works:</strong> If you specify multiple filters, an employee must match <strong>all</strong> of them.</p>
                 <p>• <strong>Any CC</strong> checkbox + blank Dept + blank Pos → Applies to <strong>everyone</strong> (TAKE only).</p>
@@ -329,10 +274,7 @@ $all_depts = $pdo->query("SELECT DISTINCT department FROM cost_center_department
                                     <td>
                                         <?php
                                         $all_active = true;
-                                        foreach ($g['rows'] as $r) if (!(int)$r['is_active']) {
-                                            $all_active = false;
-                                            break;
-                                        }
+                                        foreach ($g['rows'] as $r) if (!(int)$r['is_active']) { $all_active = false; break; }
                                         ?>
                                         <span class="<?= $all_active ? 'text-green-700' : 'text-gray-400' ?> font-semibold">
                                             <?= $all_active ? 'Active' : 'Inactive' ?>
@@ -371,36 +313,36 @@ $all_depts = $pdo->query("SELECT DISTINCT department FROM cost_center_department
     </div>
 
     <script>
-        function validateRuleForm(form) {
-            const anyCc = form.any_cc.checked;
-            const cc = form.cost_center.value.trim();
-            const dept = form.department.value.trim();
-            const pos = form.position_match.value.trim();
-            const rule = form.rule_type.value;
-            const courses = form.course_codes.value.trim();
+    function validateRuleForm(form) {
+        const anyCc = form.any_cc.checked;
+        const cc = form.cost_center.value.trim();
+        const dept = form.department.value.trim();
+        const pos = form.position_match.value.trim();
+        const rule = form.rule_type.value;
+        const courses = form.course_codes.value.trim();
 
-            if (courses === '') {
-                alert('Please add at least one course.');
-                return false;
-            }
-
-            // Check if it matches nothing
-            if (!anyCc && cc === '' && dept === '' && pos === '') {
-                alert('Please specify a Cost Center, Department, or Position.');
-                return false;
-            }
-
-            // Prevent global SKIP/FOREVER
-            if (rule !== 'take') {
-                const isGlobal = (anyCc || cc === '') && dept === '' && pos === '';
-                if (isGlobal) {
-                    alert('SKIP and FOREVER rules cannot be applied globally to everyone. Please add a Department or Position.');
-                    return false;
-                }
-            }
-
-            return true;
+        if (courses === '') {
+            alert('Please add at least one course.');
+            return false;
         }
+
+        // Check if it matches nothing
+        if (!anyCc && cc === '' && dept === '' && pos === '') {
+            alert('Please specify a Cost Center, Department, or Position.');
+            return false;
+        }
+
+        // Prevent global SKIP/FOREVER
+        if (rule !== 'take') {
+            const isGlobal = (anyCc || cc === '') && dept === '' && pos === '';
+            if (isGlobal) {
+                alert('SKIP and FOREVER rules cannot be applied globally to everyone. Please add a Department or Position.');
+                return false;
+            }
+        }
+
+        return true;
+    }
     </script>
 
 </body>

@@ -20,9 +20,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0, height=device-height, viewport-fit=cover">
-    <title>Admin Login - Generic Course Track</title>
+    <title>Admin Login - MRO Employees Training Tracker</title>
     <link rel="icon" type="image/png" href="../img/ethiopian_logo.ico">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
@@ -54,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="max-w-7xl mx-auto px-6 py-3 flex justify-between items-center">
             <a href="../index.php" class="flex items-center space-x-3 text-white hover:text-blue-200 transition">
                 <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
-                <span class="font-bold text-lg">Generic Course Track</span>
+                <span class="font-bold text-lg">MRO Employees Training Tracker</span>
             </a>
             <a href="../index.php" class="text-white hover:text-blue-200 font-medium px-3 py-1.5 rounded-lg transition text-sm">
                 ← Back to Home
@@ -67,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
             <div class="text-center mb-5">
                 <h1 class="text-2xl font-bold text-gray-800">HR Login</h1>
-                <p class="text-gray-600 mt-1 text-sm">Generic Course Track HR Panel</p>
+                <p class="text-gray-600 mt-1 text-sm">MRO Employees Training Tracker HR Panel</p>
             </div>
 
             <?php if ($error): ?>
@@ -105,7 +106,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <footer class="bg-[#588D01] text-white py-3 flex-shrink-0">
         <div class="w-full max-w-7xl mx-auto px-5 text-center">
             <p class="text-xs">
-                © 2026 <span class="font-semibold text-white">Generic Course Track</span>. All rights reserved.
+                © 2025 - 2026 <span class="font-semibold text-white">MRO Employees Training Tracker</span>. All rights reserved.
             </p>
             <p class="text-[11px] mt-1 opacity-75">
                 MRO Course Track System • Powered by NATNAEL BIZUNEH

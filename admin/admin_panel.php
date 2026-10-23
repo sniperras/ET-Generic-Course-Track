@@ -92,7 +92,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
   <meta charset="utf-8">
 
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Ethiopian Airlines Generic Course Track</title>
+  <title>MRO Employees Training Tracker</title>
   <link rel="icon" type="image/png" href="../img/ethiopian_logo.ico">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -107,7 +107,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
   <header class="bg-[#588D01] text-white shadow-lg">
     <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
       <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
-      <h1 class="text-xl font-bold">Ethiopian Airlines Generic Course Track</h1>
+      <h1 class="text-xl font-bold">MRO Employees Training Tracker</h1>
       <div class="flex items-center gap-6">
         <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Guest') ?></strong></span>
         <span class="text-sm bg-[#588D01] text-white px-3 py-1 rounded-full"><?= strtoupper($current_user_role) ?></span>
