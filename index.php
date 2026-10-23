@@ -42,7 +42,9 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 if (session_status() === PHP_SESSION_NONE) session_start();
+
 require_once __DIR__ . '/include/db_connect.php';
+
 require_once __DIR__ . '/include/cc_overrides.php';
 
 // Error handling for AJAX - disable error output for JSON responses
@@ -733,12 +735,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
     }
     exit;
 }
+require_once __DIR__ . '/include/tracker.php';
+tracker_log_visit($pdo);
 ?>
 <!doctype html>
 <html lang="en">
 
 <head>
     <meta charset="utf-8">
+
 
 
     <title>Ethiopian Airlines CourseTrack | Employee Training Status</title>
@@ -771,6 +776,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
             color: #999;
         }
     </style>
+    <script>
+        (function() {
+            if (window.__trackerInit) return;
+            window.__trackerInit = true;
+
+            const start = Date.now();
+            let scrollMax = 0,
+                clicks = 0,
+                formFocuses = 0,
+                downloads = 0,
+                exitIntent = 0;
+
+            function onScroll() {
+                const doc = document.documentElement;
+                const pct = Math.min(100, Math.round(
+                    (doc.scrollTop + window.innerHeight) / doc.scrollHeight * 100
+                ));
+                if (pct > scrollMax) scrollMax = pct;
+            }
+            window.addEventListener('scroll', onScroll, {
+                passive: true
+            });
+
+            document.addEventListener('click', () => clicks++);
+            document.addEventListener('focusin', (e) => {
+                if (e.target.matches('input,textarea,select')) formFocuses++;
+            });
+            document.addEventListener('click', (e) => {
+                const a = e.target.closest('a');
+                if (a && (a.href || '').match(/\.(pdf|zip|docx?|xlsx?|csv)$/i)) downloads++;
+            });
+
+            document.addEventListener('mouseleave', (e) => {
+                if (e.clientY < 10) exitIntent = 1;
+            });
+
+            function send(extra) {
+                const nav = navigator;
+                const conn = nav.connection || nav.mozConnection || nav.webkitConnection || {};
+
+                const data = new FormData();
+                data.append('track_visit', '1');
+                data.append('screen_w', window.screen.width || 0);
+                data.append('screen_h', window.screen.height || 0);
+                data.append('viewport_w', window.innerWidth || 0);
+                data.append('viewport_h', window.innerHeight || 0);
+                data.append('color_depth', window.screen.colorDepth || 0);
+                data.append('pixel_ratio', window.devicePixelRatio || 1);
+                data.append('dark_mode', window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 0);
+                data.append('lang', nav.language || '');
+                data.append('languages', (nav.languages || []).join(','));
+                data.append('cpu_cores', nav.hardwareConcurrency || 0);
+                data.append('device_memory', nav.deviceMemory || 0);
+                data.append('conn_type', conn.effectiveType || '');
+                data.append('conn_speed', conn.downlink || '');
+                data.append('data_saver', conn.saveData ? 1 : 0);
+                data.append('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+                data.append('platform', nav.platform || '');
+                data.append('scroll_depth', scrollMax);
+                data.append('dwell_seconds', Math.round((Date.now() - start) / 1000));
+                data.append('clicks', clicks);
+                data.append('form_focuses', formFocuses);
+                data.append('downloads', downloads);
+                data.append('exit_intent', exitIntent);
+                Object.entries(extra || {}).forEach(([k, v]) => data.append(k, v));
+
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(window.location.pathname + '?track_visit=1', data);
+                } else {
+                    fetch(window.location.pathname + '?track_visit=1', {
+                        method: 'POST',
+                        body: data,
+                        keepalive: true
+                    });
+                }
+            }
+
+            // First snapshot shortly after load
+            setTimeout(() => send(), 1200);
+
+            // Final snapshot when leaving or hiding
+            const flush = () => send();
+            window.addEventListener('pagehide', flush);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') flush();
+            });
+        })();
+    </script>
 </head>
 
 <body class="bg-gray-50 min-h-screen flex flex-col">
@@ -985,7 +1078,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                                     <span class="text-xs text-[#E1F5E9] leading-tight block mt-0.5">Qualified people keep aircraft safe</span>
                                 </div>
                             </div>
-                            
+
+
+
                             <!-- Footer actions -->
                             <div class="flex flex-wrap gap-3 justify-between items-center mt-4">
                                 <div>
@@ -1045,7 +1140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['check_cooldown'])) {
                             }
                         });
 
-                        
+
                     }
 
                     items.forEach(li => {

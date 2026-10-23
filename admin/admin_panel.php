@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 
 require_once __DIR__ . '/../include/db_connect.php';
 require_once __DIR__ . '/../include/auth.php';
+require_once __DIR__ . '/../include/tracker.php';
 
 // Handle password change (logged-in users only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_own_password'])) {
@@ -54,6 +55,7 @@ $allowed_pages = [
   'import_training',
   'training_disputes_manage',
   '1&status=open',
+  'system',
   'users'
 ];
 
@@ -61,9 +63,11 @@ $allowed_pages = [
 $page_raw = $_GET['page'] ?? 'dashboard';
 $page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'dashboard';
 
-// Auth gate: public pages skip login, everything else requires it
-// (requirePageAccess internally calls requireAdmin() for protected pages)
+// Auth gate — MUST run before tracking so $_SESSION reflects the real user
 requirePageAccess($page);
+
+// ── NOW track the visit — session is fully populated ──
+tracker_log_visit($pdo);
 
 $current_user_role = $_SESSION['user_role'] ?? '';
 
@@ -138,7 +142,8 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           'import'    => 'Import Employee Excel',
           'import_training' => 'Import Records Excel',
           'training_disputes_manage' => 'Manage Training Disputes',
-          'users'     => 'Users'
+          'users'     => 'Users',
+          'system'    => 'System'
         ];
 
         // Guests see only public pages
@@ -208,6 +213,9 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           break;
         case 'users':
           include __DIR__ . '/users.php';
+          break;
+        case 'system':
+          include __DIR__ . '/system.php';
           break;
         case 'records':
           include __DIR__ . '/records.php';
