@@ -264,8 +264,20 @@ $pdf->Cell(0, 6, 'ETHIOPIAN AIRLINES', 0, 1, 'L');
 // Department
 $pdf->SetFont('helvetica', '', 9);
 $pdf->SetXY(50, 9);
-$pdf->Cell(0, 5, 'MRO Svcs – Technical Training Department', 0, 1, 'L');
+$pdf->Cell(0, 5, 'MD ET MRO Svcs', 0, 1, 'L');
 
+// Vertical Separator Line
+$pdf->SetDrawColor(255, 255, 255);
+$pdf->SetLineWidth(0.2);
+$pdf->Line(145, 4, 145, 13); // x1, y1, x2, y2
+
+// CRITICAL: Reset draw color and line width back to black for subsequent tables
+$pdf->SetDrawColor(0, 0, 0);
+$pdf->SetLineWidth(0.2); // Standard table border width
+// MRO
+$pdf->SetFont('helvetica', '', 9);
+$pdf->SetXY(45, 6);
+$pdf->Cell(157, 0, 'MRO Coaching and Training Section', 0, 1, 'R');
 // Address
 $pdf->SetFont('helvetica', 'I', 8);
 $pdf->SetXY(50, 14);
