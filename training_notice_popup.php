@@ -197,13 +197,18 @@
         const STORAGE_KEY = 'training_notice_dismissed_v1';
 
         const popup = document.getElementById(POPUP_ID);
-        const closeBtn = document.getElementById('tnpClose');
-        const ackBtn = document.getElementById('tnpAck');
-        const hintEl = document.getElementById('tnpHint');
-        const progress = document.getElementById('tnpProgress');
-        const items = popup ? popup.querySelectorAll('.tnp-check') : [];
-
         if (!popup) return;
+
+        // ═══════════════════════════════════════════════════════════
+        // Scope ALL lookups to the popup itself so this script never
+        // collides with the inline notice card in index.php that
+        // reuses the same .tnp-check / #tnpProgress / #tnpHint ids.
+        // ═══════════════════════════════════════════════════════════
+        const closeBtn = popup.querySelector('#tnpClose');
+        const ackBtn = popup.querySelector('#tnpAck');
+        const hintEl = popup.querySelector('#tnpHint');
+        const progress = popup.querySelector('#tnpProgress'); // ✅ fixed: bare id, scoped to popup
+        const items = popup.querySelectorAll('.tnp-check');
 
         let dismissed = false;
         try {
@@ -236,7 +241,7 @@
             const done = Array.from(items).filter(li => li.classList.contains('done')).length;
             const total = items.length;
             const pct = total ? (done / total) * 100 : 0;
-            progress.style.width = pct + '%';
+            if (progress) progress.style.width = pct + '%';
 
             items.forEach(li => {
                 const ck = li.querySelector('.tnp-ck');
@@ -254,13 +259,14 @@
                 }
             });
 
-            if (done === total) {
+            if (!ackBtn) return;
+            if (done === total && total > 0) {
                 ackBtn.disabled = false;
                 ackBtn.textContent = '✔ I understand';
-                hintEl.textContent = 'All points checked — tap to confirm.';
+                if (hintEl) hintEl.textContent = 'All points checked — tap to confirm.';
             } else {
                 ackBtn.disabled = true;
-                hintEl.textContent = done + ' of ' + total + ' checked. Tap each point to tick it off.';
+                if (hintEl) hintEl.textContent = done + ' of ' + total + ' checked. Tap each point to tick it off.';
             }
         }
 
@@ -276,7 +282,7 @@
             ackBtn.disabled = true;
             ackBtn.style.background = '#22c55e';
             ackBtn.style.color = '#fff';
-            hintEl.textContent = 'Acknowledged. Keep your training up to date!';
+            if (hintEl) hintEl.textContent = 'Acknowledged. Keep your training up to date!';
             setTimeout(closePopup, 1200);
         });
 

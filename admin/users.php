@@ -1,6 +1,8 @@
-<?php 
-require_once '../include/db_connect.php'; 
-require_once '../include/auth.php'; 
+<?php
+require_once __DIR__ . '/include/tracker.php';
+tracker_log_visit($pdo);
+require_once '../include/db_connect.php';
+require_once '../include/auth.php';
 requireAdminRole(); // Instead of just requireAdmin()
 
 // Get current user's role from session
@@ -28,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
     } catch (PDOException $e) {
         $_SESSION['error_message'] = "Error adding user: " . $e->getMessage();
     }
-    
+
     // Redirect to avoid form resubmission
     header('Location: admin_panel.php?page=users');
     exit;
@@ -39,7 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
     $user_id = $_POST['user_id'];
     $new_password = $_POST['new_password'];
     $confirm_password = $_POST['confirm_password'];
-    
+
     // Validate passwords match
     if ($new_password !== $confirm_password) {
         $_SESSION['error_message'] = "Passwords do not match!";
@@ -55,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
             $_SESSION['error_message'] = "Error changing password: " . $e->getMessage();
         }
     }
-    
+
     header('Location: admin_panel.php?page=users');
     exit;
 }
@@ -63,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
 // Handle Delete User
 if (isset($_GET['delete_user'])) {
     $user_id = $_GET['delete_user'];
-    
+
     // Prevent admin from deleting themselves
     if ($user_id == $_SESSION['admin_user_id']) {
         $_SESSION['error_message'] = "You cannot delete your own account!";
@@ -76,7 +78,7 @@ if (isset($_GET['delete_user'])) {
             $_SESSION['error_message'] = "Error deleting user: " . $e->getMessage();
         }
     }
-    
+
     header('Location: admin_panel.php?page=users');
     exit;
 }
@@ -84,7 +86,7 @@ if (isset($_GET['delete_user'])) {
 // Handle Toggle User Status (Activate/Deactivate)
 if (isset($_GET['toggle_status'])) {
     $user_id = $_GET['toggle_status'];
-    
+
     // Prevent admin from deactivating themselves
     if ($user_id == $_SESSION['admin_user_id']) {
         $_SESSION['error_message'] = "You cannot deactivate your own account!";
@@ -97,7 +99,7 @@ if (isset($_GET['toggle_status'])) {
             $_SESSION['error_message'] = "Error updating user status: " . $e->getMessage();
         }
     }
-    
+
     header('Location: admin_panel.php?page=users');
     exit;
 }
@@ -121,6 +123,95 @@ $users = $pdo->query("SELECT user_id, username, full_name, role, is_active FROM 
         <?php unset($_SESSION['error_message']); ?>
     </div>
 <?php endif; ?>
+
+<script>
+    (function() {
+        if (window.__trackerInit) return;
+        window.__trackerInit = true;
+
+        const start = Date.now();
+        let scrollMax = 0,
+            clicks = 0,
+            formFocuses = 0,
+            downloads = 0,
+            exitIntent = 0;
+
+        function onScroll() {
+            const doc = document.documentElement;
+            const pct = Math.min(100, Math.round(
+                (doc.scrollTop + window.innerHeight) / doc.scrollHeight * 100
+            ));
+            if (pct > scrollMax) scrollMax = pct;
+        }
+        window.addEventListener('scroll', onScroll, {
+            passive: true
+        });
+
+        document.addEventListener('click', () => clicks++);
+        document.addEventListener('focusin', (e) => {
+            if (e.target.matches('input,textarea,select')) formFocuses++;
+        });
+        document.addEventListener('click', (e) => {
+            const a = e.target.closest('a');
+            if (a && (a.href || '').match(/\.(pdf|zip|docx?|xlsx?|csv)$/i)) downloads++;
+        });
+
+        document.addEventListener('mouseleave', (e) => {
+            if (e.clientY < 10) exitIntent = 1;
+        });
+
+        function send(extra) {
+            const nav = navigator;
+            const conn = nav.connection || nav.mozConnection || nav.webkitConnection || {};
+
+            const data = new FormData();
+            data.append('track_visit', '1');
+            data.append('screen_w', window.screen.width || 0);
+            data.append('screen_h', window.screen.height || 0);
+            data.append('viewport_w', window.innerWidth || 0);
+            data.append('viewport_h', window.innerHeight || 0);
+            data.append('color_depth', window.screen.colorDepth || 0);
+            data.append('pixel_ratio', window.devicePixelRatio || 1);
+            data.append('dark_mode', window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 0);
+            data.append('lang', nav.language || '');
+            data.append('languages', (nav.languages || []).join(','));
+            data.append('cpu_cores', nav.hardwareConcurrency || 0);
+            data.append('device_memory', nav.deviceMemory || 0);
+            data.append('conn_type', conn.effectiveType || '');
+            data.append('conn_speed', conn.downlink || '');
+            data.append('data_saver', conn.saveData ? 1 : 0);
+            data.append('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+            data.append('platform', nav.platform || '');
+            data.append('scroll_depth', scrollMax);
+            data.append('dwell_seconds', Math.round((Date.now() - start) / 1000));
+            data.append('clicks', clicks);
+            data.append('form_focuses', formFocuses);
+            data.append('downloads', downloads);
+            data.append('exit_intent', exitIntent);
+            Object.entries(extra || {}).forEach(([k, v]) => data.append(k, v));
+
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(window.location.pathname + '?track_visit=1', data);
+            } else {
+                fetch(window.location.pathname + '?track_visit=1', {
+                    method: 'POST',
+                    body: data,
+                    keepalive: true
+                });
+            }
+        }
+
+        // First snapshot shortly after load
+        setTimeout(() => send(), 1200);
+
+        // Final snapshot when leaving or hiding
+        const flush = () => send();
+        window.addEventListener('pagehide', flush);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flush();
+        });
+    })();
+</script>
 
 <!-- Add User Form -->
 <div class="bg-white rounded-xl shadow-lg p-8 mb-8">
@@ -153,48 +244,47 @@ $users = $pdo->query("SELECT user_id, username, full_name, role, is_active FROM 
             </thead>
             <tbody>
                 <?php foreach ($users as $user): ?>
-                <tr class="border-t hover:bg-gray-50">
-                    <td class="px-6 py-4"><?= htmlspecialchars($user['username']) ?></td>
-                    <td class="px-6 py-4"><?= htmlspecialchars($user['full_name']) ?></td>
-                    <td class="px-6 py-4">
-                        <span class="px-3 py-1 rounded-full text-white text-sm <?= 
-                            $user['role']=='admin' ? 'bg-red-600' : 
-                            ($user['role']=='hr' ? 'bg-blue-600' : 'bg-gray-600') 
-                        ?>">
-                            <?= ucfirst($user['role']) ?>
-                        </span>
-                    </td>
-                    <td class="px-6 py-4">
-                        <span class="px-3 py-1 rounded-full text-white text-sm <?= $user['is_active'] ? 'bg-green-600' : 'bg-gray-500' ?>">
-                            <?= $user['is_active'] ? 'Active' : 'Inactive' ?>
-                        </span>
-                    </td>
-                    <td class="px-6 py-4">
-                        <div class="flex gap-2">
-                            <!-- Change Password Button -->
-                            <button onclick="openPasswordModal(<?= $user['user_id'] ?>, '<?= htmlspecialchars($user['username']) ?>')" 
+                    <tr class="border-t hover:bg-gray-50">
+                        <td class="px-6 py-4"><?= htmlspecialchars($user['username']) ?></td>
+                        <td class="px-6 py-4"><?= htmlspecialchars($user['full_name']) ?></td>
+                        <td class="px-6 py-4">
+                            <span class="px-3 py-1 rounded-full text-white text-sm <?=
+                                                                                    $user['role'] == 'admin' ? 'bg-red-600' : ($user['role'] == 'hr' ? 'bg-blue-600' : 'bg-gray-600')
+                                                                                    ?>">
+                                <?= ucfirst($user['role']) ?>
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="px-3 py-1 rounded-full text-white text-sm <?= $user['is_active'] ? 'bg-green-600' : 'bg-gray-500' ?>">
+                                <?= $user['is_active'] ? 'Active' : 'Inactive' ?>
+                            </span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="flex gap-2">
+                                <!-- Change Password Button -->
+                                <button onclick="openPasswordModal(<?= $user['user_id'] ?>, '<?= htmlspecialchars($user['username']) ?>')"
                                     class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm transition duration-200">
-                                Change Password
-                            </button>
-                            
-                            <!-- Toggle Status Button -->
-                            <a href="?page=users&toggle_status=<?= $user['user_id'] ?>" 
-                               onclick="return confirm('Are you sure you want to <?= $user['is_active'] ? 'deactivate' : 'activate' ?> this user?')"
-                               class="<?= $user['is_active'] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-500 hover:bg-green-600' ?> text-white px-3 py-1 rounded text-sm transition duration-200">
-                                <?= $user['is_active'] ? 'Deactivate' : 'Activate' ?>
-                            </a>
-                            
-                            <!-- Delete Button (don't show for current user) -->
-                            <?php if ($user['user_id'] != $_SESSION['admin_user_id']): ?>
-                            <a href="?page=users&delete_user=<?= $user['user_id'] ?>" 
-                               onclick="return confirm('Are you sure you want to delete user <?= htmlspecialchars($user['username']) ?>? This action cannot be undone.')"
-                               class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition duration-200">
-                                Delete
-                            </a>
-                            <?php endif; ?>
-                        </div>
-                    </td>
-                </tr>
+                                    Change Password
+                                </button>
+
+                                <!-- Toggle Status Button -->
+                                <a href="?page=users&toggle_status=<?= $user['user_id'] ?>"
+                                    onclick="return confirm('Are you sure you want to <?= $user['is_active'] ? 'deactivate' : 'activate' ?> this user?')"
+                                    class="<?= $user['is_active'] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-500 hover:bg-green-600' ?> text-white px-3 py-1 rounded text-sm transition duration-200">
+                                    <?= $user['is_active'] ? 'Deactivate' : 'Activate' ?>
+                                </a>
+
+                                <!-- Delete Button (don't show for current user) -->
+                                <?php if ($user['user_id'] != $_SESSION['admin_user_id']): ?>
+                                    <a href="?page=users&delete_user=<?= $user['user_id'] ?>"
+                                        onclick="return confirm('Are you sure you want to delete user <?= htmlspecialchars($user['username']) ?>? This action cannot be undone.')"
+                                        class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition duration-200">
+                                        Delete
+                                    </a>
+                                <?php endif; ?>
+                            </div>
+                        </td>
+                    </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
@@ -208,34 +298,34 @@ $users = $pdo->query("SELECT user_id, username, full_name, role, is_active FROM 
             <h3 class="text-lg font-bold">Change Password</h3>
             <button onclick="closePasswordModal()" class="text-gray-600 hover:text-gray-800 text-xl">&times;</button>
         </div>
-        
+
         <form method="POST" onsubmit="return validatePasswordForm()">
             <input type="hidden" name="user_id" id="modal_user_id">
-            
+
             <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-bold mb-2">User: <span id="modal_username" class="text-purple-600"></span></label>
             </div>
-            
+
             <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-bold mb-2">New Password (min 6 chars)</label>
-                <input type="password" name="new_password" id="new_password" required 
-                       class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600">
+                <input type="password" name="new_password" id="new_password" required
+                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600">
             </div>
-            
+
             <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-bold mb-2">Confirm Password</label>
-                <input type="password" name="confirm_password" id="confirm_password" required 
-                       class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600">
+                <input type="password" name="confirm_password" id="confirm_password" required
+                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600">
                 <p id="password_error" class="text-red-500 text-xs mt-1 hidden">Passwords do not match!</p>
             </div>
-            
+
             <div class="flex gap-2">
-                <button type="submit" name="change_password" 
-                        class="bg-purple-700 hover:bg-purple-800 text-white font-bold py-2 px-4 rounded transition duration-200">
+                <button type="submit" name="change_password"
+                    class="bg-purple-700 hover:bg-purple-800 text-white font-bold py-2 px-4 rounded transition duration-200">
                     Change Password
                 </button>
-                <button type="button" onclick="closePasswordModal()" 
-                        class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition duration-200">
+                <button type="button" onclick="closePasswordModal()"
+                    class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition duration-200">
                     Cancel
                 </button>
             </div>
@@ -244,43 +334,43 @@ $users = $pdo->query("SELECT user_id, username, full_name, role, is_active FROM 
 </div>
 
 <script>
-function openPasswordModal(userId, username) {
-    document.getElementById('modal_user_id').value = userId;
-    document.getElementById('modal_username').textContent = username;
-    document.getElementById('passwordModal').classList.remove('hidden');
-    document.getElementById('new_password').value = '';
-    document.getElementById('confirm_password').value = '';
-    document.getElementById('password_error').classList.add('hidden');
-}
-
-function closePasswordModal() {
-    document.getElementById('passwordModal').classList.add('hidden');
-}
-
-function validatePasswordForm() {
-    const newPassword = document.getElementById('new_password').value;
-    const confirmPassword = document.getElementById('confirm_password').value;
-    const errorDiv = document.getElementById('password_error');
-    
-    if (newPassword !== confirmPassword) {
-        errorDiv.classList.remove('hidden');
-        return false;
+    function openPasswordModal(userId, username) {
+        document.getElementById('modal_user_id').value = userId;
+        document.getElementById('modal_username').textContent = username;
+        document.getElementById('passwordModal').classList.remove('hidden');
+        document.getElementById('new_password').value = '';
+        document.getElementById('confirm_password').value = '';
+        document.getElementById('password_error').classList.add('hidden');
     }
-    
-    if (newPassword.length < 6) {
-        alert('Password must be at least 6 characters long!');
-        return false;
-    }
-    
-    errorDiv.classList.add('hidden');
-    return true;
-}
 
-// Close modal when clicking outside
-window.onclick = function(event) {
-    const modal = document.getElementById('passwordModal');
-    if (event.target === modal) {
-        closePasswordModal();
+    function closePasswordModal() {
+        document.getElementById('passwordModal').classList.add('hidden');
     }
-}
+
+    function validatePasswordForm() {
+        const newPassword = document.getElementById('new_password').value;
+        const confirmPassword = document.getElementById('confirm_password').value;
+        const errorDiv = document.getElementById('password_error');
+
+        if (newPassword !== confirmPassword) {
+            errorDiv.classList.remove('hidden');
+            return false;
+        }
+
+        if (newPassword.length < 6) {
+            alert('Password must be at least 6 characters long!');
+            return false;
+        }
+
+        errorDiv.classList.add('hidden');
+        return true;
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('passwordModal');
+        if (event.target === modal) {
+            closePasswordModal();
+        }
+    }
 </script>

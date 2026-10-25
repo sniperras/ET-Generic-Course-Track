@@ -1,6 +1,8 @@
 <?php
 require_once '../include/db_connect.php';
 require_once '../include/auth.php';
+require_once '../include/tracker.php';
+tracker_log_visit($pdo);
 requireAdmin();
 
 // Increase PHP limits to handle large forms
@@ -19,8 +21,9 @@ ob_start();
 // =================================================================
 function current_actor(): string
 {
-    // Try every common session key your auth might store the username under.
-    foreach (['username', 'user', 'admin_username', 'full_name', 'admin_name', 'email'] as $key) {
+    // Your auth.php stores the full name in $_SESSION['admin_name'].
+    // We also check a few other common keys in case you add them later.
+    foreach (['admin_username', 'username', 'user', 'admin_name', 'full_name', 'email'] as $key) {
         if (!empty($_SESSION[$key]) && is_string($_SESSION[$key])) {
             $v = trim($_SESSION[$key]);
             if ($v !== '') return $v;
@@ -39,7 +42,6 @@ function ensure_last_updated_by_columns(PDO $pdo): void
     $done = true;
 
     try {
-        // Find every table matching the course_records_* pattern
         $tables = $pdo->query("
             SELECT TABLE_NAME
             FROM information_schema.TABLES
@@ -48,10 +50,8 @@ function ensure_last_updated_by_columns(PDO $pdo): void
         ")->fetchAll(PDO::FETCH_COLUMN);
 
         foreach ($tables as $tbl) {
-            // Basic safety: only touch tables that look like ours
             if (!preg_match('/^course_records_[a-zA-Z0-9_]+$/', $tbl)) continue;
 
-            // Does the column already exist?
             $hasCol = $pdo->prepare("
                 SELECT COUNT(*)
                 FROM information_schema.COLUMNS
@@ -62,18 +62,14 @@ function ensure_last_updated_by_columns(PDO $pdo): void
             $hasCol->execute([$tbl]);
             if ((int)$hasCol->fetchColumn() > 0) continue;
 
-            // Add it
             $pdo->exec("ALTER TABLE `$tbl`
                         ADD COLUMN `LastUpdatedBy` VARCHAR(100) NULL DEFAULT NULL");
         }
     } catch (Throwable $e) {
-        // Non-fatal — the page still works, we just won't be able to
-        // record who updated the row on the very first save after deploy.
         error_log('ensure_last_updated_by_columns failed: ' . $e->getMessage());
     }
 }
 
-// Run the migration once per request (it's a no-op after the first deploy)
 ensure_last_updated_by_columns($pdo);
 
 // ============================ SAVE RECORDS ============================
@@ -94,66 +90,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
         exit;
     }
 
-    // Who is doing this save?
     $actor = current_actor();
 
     $updated = 0;
+    $skipped = 0;
     $errors = [];
-    $processed_courses = [];
 
-    // Debug: Check what we received
     error_log("=== START SAVING RECORDS ===");
     error_log("Employee ID: $emp_id");
     error_log("Actor: $actor");
 
-    // Get all active courses from database to verify IDs
     $all_courses = $pdo->query("SELECT course_id, table_name FROM courses WHERE is_active = 1 AND table_name IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC);
     $valid_course_ids = array_column($all_courses, 'course_id');
 
-    // Process each course from the form
     if (!empty($_POST['taken_date']) && is_array($_POST['taken_date'])) {
         foreach ($_POST['taken_date'] as $course_id => $completed_date) {
             $course_id = (int)$course_id;
-
-            // Skip if course ID is invalid
             if (!in_array($course_id, $valid_course_ids)) {
-                error_log("Skipping invalid course ID: $course_id");
                 continue;
             }
-
-            $processed_courses[] = $course_id;
 
             $completed_date = trim($completed_date ?? '');
             $status = $_POST['status'][$course_id] ?? 'NA';
 
-            // Convert empty date to null
             if ($completed_date === '' || $completed_date === '0000-00-00' || $completed_date === 'mm/dd/yyyy') {
                 $completed_date = null;
             }
 
             // Skip if no data to save
             if ($completed_date === null && $status === 'NA') {
-                error_log("Skipping course $course_id - no data");
                 continue;
             }
 
-            // Get the table name from courses table
             $stmt = $pdo->prepare("SELECT table_name FROM courses WHERE course_id = ? AND is_active = 1");
             $stmt->execute([$course_id]);
             $table_name = trim((string)$stmt->fetchColumn());
 
             if (!$table_name) {
                 $errors[] = "Course ID $course_id has no table name defined.";
-                error_log("No table name for course ID: $course_id");
+                continue;
+            }
+            if (!preg_match('/^course_records_[a-zA-Z0-9_]+$/', $table_name)) {
+                $errors[] = "Invalid table name for course ID $course_id.";
                 continue;
             }
 
             try {
-                // Check if table exists, create if not
-                $table_exists = $pdo->query("SHOW TABLES LIKE '$table_name'")->fetch();
+                // Make sure the table exists (create with LastUpdatedBy if not)
+                $table_exists = $pdo->query("SHOW TABLES LIKE " . $pdo->quote($table_name))->fetch();
                 if (!$table_exists) {
-                    // Create table with proper structure (now including LastUpdatedBy)
-                    $create_sql = "
+                    $pdo->exec("
                         CREATE TABLE `$table_name` (
                             `ID` VARCHAR(50) NOT NULL PRIMARY KEY,
                             `NameOfEmployee` VARCHAR(255) NOT NULL,
@@ -165,12 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                             `LastUpdated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                             `LastUpdatedBy` VARCHAR(100) NULL DEFAULT NULL
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-                    ";
-                    $pdo->exec($create_sql);
-                    error_log("Created table: $table_name");
+                    ");
                 } else {
-                    // Make sure LastUpdatedBy exists (belt & braces — the
-                    // one-time migration above normally handles this)
                     $hasCol = $pdo->prepare("
                         SELECT COUNT(*) FROM information_schema.COLUMNS
                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
@@ -183,175 +165,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_records'])) {
                     }
                 }
 
-                // Check if table has old structure (with record_id instead of ID as PK)
-                $check_columns = $pdo->query("SHOW COLUMNS FROM `$table_name`")->fetchAll(PDO::FETCH_COLUMN);
+                // ── Read the existing row first ──
+                $existing = null;
+                try {
+                    $getStmt = $pdo->prepare("SELECT CompletedDate, Status FROM `$table_name` WHERE ID = ? LIMIT 1");
+                    $getStmt->execute([$emp_id]);
+                    $existing = $getStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+                } catch (Throwable $e) {
+                    $existing = null; // treat as missing row
+                }
 
-                if (in_array('record_id', $check_columns)) {
-                    // ── LEGACY TABLE PATH ──
-                    $check_sql = "SELECT COUNT(*) FROM `$table_name` WHERE ID = ?";
-                    $check_stmt = $pdo->prepare($check_sql);
-                    $check_stmt->execute([$emp_id]);
-                    $exists = $check_stmt->fetchColumn();
+                $newDate   = $completed_date ? date('Y-m-d', strtotime($completed_date)) : null;
+                $oldDate   = ($existing && !empty($existing['CompletedDate']) && $existing['CompletedDate'] !== '0000-00-00')
+                    ? date('Y-m-d', strtotime($existing['CompletedDate'])) : null;
+                $oldStatus = $existing['Status'] ?? null;
 
-                    if ($exists > 0) {
-                        // Update existing record
-                        $sql = "UPDATE `$table_name` SET 
-                                NameOfEmployee = ?,
-                                CC = ?,
-                                Position = ?,
-                                Dept = ?,
-                                CompletedDate = ?,
-                                Status = ?,
-                                LastUpdated = CURRENT_TIMESTAMP,
-                                LastUpdatedBy = ?
-                                WHERE ID = ?";
-                        $stmt2 = $pdo->prepare($sql);
-                        $stmt2->execute([
-                            $employee['full_name'],
-                            $employee['cost_center'] ?? '',
-                            $employee['position'] ?? '',
-                            $employee['department'] ?? '',
-                            $completed_date,
-                            $status,
-                            $actor,
-                            $emp_id
-                        ]);
-                    } else {
-                        // Insert new record
-                        $sql = "INSERT INTO `$table_name` 
-                                (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status, LastUpdatedBy)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-                        $stmt2 = $pdo->prepare($sql);
-                        $stmt2->execute([
-                            $emp_id,
-                            $employee['full_name'],
-                            $employee['cost_center'] ?? '',
-                            $employee['position'] ?? '',
-                            $employee['department'] ?? '',
-                            $completed_date,
-                            $status,
-                            $actor
-                        ]);
-                    }
-
-                    if ($stmt2->rowCount() > 0) {
-                        $updated++;
-                        error_log("Successfully saved course $course_id to $table_name (legacy path, actor=$actor)");
-                    }
+                // ── If nothing actually changed, skip the write entirely ──
+                if ($existing !== null && $oldDate === $newDate && $oldStatus === $status) {
+                    $skipped++;
                     continue;
                 }
 
-                // ── STANDARD PATH: INSERT ... ON DUPLICATE KEY UPDATE ──
+                // ── Otherwise: write and stamp LastUpdatedBy = $actor ──
                 $sql = "INSERT INTO `$table_name` 
                             (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status, LastUpdatedBy)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE
                             NameOfEmployee = VALUES(NameOfEmployee),
-                            CC = VALUES(CC), 
-                            Position = VALUES(Position), 
-                            Dept = VALUES(Dept),
-                            CompletedDate = VALUES(CompletedDate), 
-                            Status = VALUES(Status),
-                            LastUpdated = CURRENT_TIMESTAMP,
-                            LastUpdatedBy = VALUES(LastUpdatedBy)";
+                            CC             = VALUES(CC), 
+                            Position       = VALUES(Position), 
+                            Dept           = VALUES(Dept),
+                            CompletedDate  = VALUES(CompletedDate), 
+                            Status         = VALUES(Status),
+                            LastUpdated    = CURRENT_TIMESTAMP,
+                            LastUpdatedBy  = VALUES(LastUpdatedBy)";
 
                 $stmt2 = $pdo->prepare($sql);
                 $stmt2->execute([
                     $emp_id,
                     $employee['full_name'],
                     $employee['cost_center'] ?? '',
-                    $employee['position'] ?? '',
-                    $employee['department'] ?? '',
+                    $employee['position']    ?? '',
+                    $employee['department']  ?? '',
                     $completed_date,
                     $status,
                     $actor
                 ]);
 
-                if ($stmt2->rowCount() > 0) {
-                    $updated++;
-                    error_log("Successfully saved course $course_id to $table_name - Date: $completed_date, Status: $status, Actor: $actor");
-                } else {
-                    error_log("No changes for course $course_id (data unchanged)");
-                }
+                $updated++;
+                error_log("Updated course $course_id -> $table_name (actor=$actor)");
             } catch (Exception $e) {
                 $error_msg = "Error saving to $table_name for course $course_id: " . $e->getMessage();
                 error_log($error_msg);
                 $errors[] = $error_msg;
-
-                // Try alternative approach if first fails
-                try {
-                    error_log("Trying alternative save method...");
-                    $sql = "INSERT IGNORE INTO `$table_name` 
-                                (ID, NameOfEmployee, CC, Position, Dept, CompletedDate, Status, LastUpdatedBy)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-                    $stmt3 = $pdo->prepare($sql);
-                    $stmt3->execute([
-                        $emp_id,
-                        $employee['full_name'],
-                        $employee['cost_center'] ?? '',
-                        $employee['position'] ?? '',
-                        $employee['department'] ?? '',
-                        $completed_date,
-                        $status,
-                        $actor
-                    ]);
-
-                    if ($stmt3->rowCount() > 0) {
-                        $updated++;
-                        error_log("Alternative save successful for course $course_id (actor=$actor)");
-                    } else {
-                        $sql = "UPDATE `$table_name` SET 
-                                NameOfEmployee = ?,
-                                CC = ?,
-                                Position = ?,
-                                Dept = ?,
-                                CompletedDate = ?,
-                                Status = ?,
-                                LastUpdated = CURRENT_TIMESTAMP,
-                                LastUpdatedBy = ?
-                                WHERE ID = ?";
-                        $stmt4 = $pdo->prepare($sql);
-                        $stmt4->execute([
-                            $employee['full_name'],
-                            $employee['cost_center'] ?? '',
-                            $employee['position'] ?? '',
-                            $employee['department'] ?? '',
-                            $completed_date,
-                            $status,
-                            $actor,
-                            $emp_id
-                        ]);
-                        if ($stmt4->rowCount() > 0) {
-                            $updated++;
-                            error_log("Update successful for course $course_id (actor=$actor)");
-                        }
-                    }
-                } catch (Exception $e2) {
-                    error_log("Alternative save also failed: " . $e2->getMessage());
-                }
             }
         }
     }
 
     error_log("=== SAVE COMPLETE ===");
-    error_log("Processed courses: " . implode(', ', $processed_courses));
-    error_log("Total updated: $updated, Total errors: " . count($errors));
+    error_log("Updated: $updated, Skipped (unchanged): $skipped, Errors: " . count($errors));
 
     $message_text = "";
     $message_type = "info";
 
     if ($updated > 0) {
         $message_text = "$updated record(s) successfully updated!";
-        $message_type = "success";
+        if ($skipped > 0) $message_text .= " ($skipped unchanged, skipped)";
         if (!empty($errors)) {
             $message_text .= " (with " . count($errors) . " error" . (count($errors) > 1 ? 's' : '') . ")";
         }
-    } else if (!empty($errors)) {
+        $message_type = "success";
+    } elseif (!empty($errors)) {
         $message_text = "Save failed: " . implode("; ", array_slice($errors, 0, 3));
         if (count($errors) > 3) {
             $message_text .= " and " . (count($errors) - 3) . " more";
         }
         $message_type = "error";
+    } elseif ($skipped > 0) {
+        $message_text = "No changes detected — $skipped record(s) already match what was stored.";
+        $message_type = "info";
     } else {
         $message_text = "No changes were made.";
         $message_type = "info";
@@ -383,7 +275,6 @@ if ($emp_id) {
     $employee = $stmt->fetch(PDO::FETCH_ASSOC);
 }
 
-// Get all active courses dynamically from the database
 $courses = $pdo->query("
     SELECT course_id, course_code, course_name, validity_months, table_name
     FROM courses 
@@ -452,6 +343,94 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
             color: #374151;
         }
     </style>
+    <script>
+        (function() {
+            if (window.__trackerInit) return;
+            window.__trackerInit = true;
+
+            const start = Date.now();
+            let scrollMax = 0,
+                clicks = 0,
+                formFocuses = 0,
+                downloads = 0,
+                exitIntent = 0;
+
+            function onScroll() {
+                const doc = document.documentElement;
+                const pct = Math.min(100, Math.round(
+                    (doc.scrollTop + window.innerHeight) / doc.scrollHeight * 100
+                ));
+                if (pct > scrollMax) scrollMax = pct;
+            }
+            window.addEventListener('scroll', onScroll, {
+                passive: true
+            });
+
+            document.addEventListener('click', () => clicks++);
+            document.addEventListener('focusin', (e) => {
+                if (e.target.matches('input,textarea,select')) formFocuses++;
+            });
+            document.addEventListener('click', (e) => {
+                const a = e.target.closest('a');
+                if (a && (a.href || '').match(/\.(pdf|zip|docx?|xlsx?|csv)$/i)) downloads++;
+            });
+
+            document.addEventListener('mouseleave', (e) => {
+                if (e.clientY < 10) exitIntent = 1;
+            });
+
+            function send(extra) {
+                const nav = navigator;
+                const conn = nav.connection || nav.mozConnection || nav.webkitConnection || {};
+
+                const data = new FormData();
+                data.append('track_visit', '1');
+                data.append('screen_w', window.screen.width || 0);
+                data.append('screen_h', window.screen.height || 0);
+                data.append('viewport_w', window.innerWidth || 0);
+                data.append('viewport_h', window.innerHeight || 0);
+                data.append('color_depth', window.screen.colorDepth || 0);
+                data.append('pixel_ratio', window.devicePixelRatio || 1);
+                data.append('dark_mode', window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 1 : 0);
+                data.append('lang', nav.language || '');
+                data.append('languages', (nav.languages || []).join(','));
+                data.append('cpu_cores', nav.hardwareConcurrency || 0);
+                data.append('device_memory', nav.deviceMemory || 0);
+                data.append('conn_type', conn.effectiveType || '');
+                data.append('conn_speed', conn.downlink || '');
+                data.append('data_saver', conn.saveData ? 1 : 0);
+                data.append('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+                data.append('platform', nav.platform || '');
+                data.append('scroll_depth', scrollMax);
+                data.append('dwell_seconds', Math.round((Date.now() - start) / 1000));
+                data.append('clicks', clicks);
+                data.append('form_focuses', formFocuses);
+                data.append('downloads', downloads);
+                data.append('exit_intent', exitIntent);
+                Object.entries(extra || {}).forEach(([k, v]) => data.append(k, v));
+
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(window.location.pathname + '?track_visit=1', data);
+                } else {
+                    fetch(window.location.pathname + '?track_visit=1', {
+                        method: 'POST',
+                        body: data,
+                        keepalive: true
+                    });
+                }
+            }
+
+            // First snapshot shortly after load
+            setTimeout(() => send(), 1200);
+
+            // Final snapshot when leaving or hiding
+            const flush = () => send();
+            window.addEventListener('pagehide', flush);
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') flush();
+            });
+        })();
+    </script>
 </head>
 
 <body class="bg-gray-100 min-h-screen">
@@ -538,12 +517,11 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                                         $course_id   = (int)$course['course_id'];
                                         $table_name  = trim($course['table_name']);
 
-                                        $input_date     = '';
-                                        $current_status = 'NA';
-                                        $status_class   = 'status-na';
+                                        $input_date      = '';
+                                        $current_status  = 'NA';
+                                        $status_class    = 'status-na';
                                         $last_updated_by = '';
 
-                                        // Try to read existing record
                                         try {
                                             if ($table_name && preg_match('/^course_records_[a-zA-Z0-9_]+$/', $table_name)) {
                                                 $sql = "SELECT CompletedDate, Status, LastUpdatedBy FROM `$table_name` WHERE ID = ? LIMIT 1";
@@ -622,7 +600,7 @@ $status_options = ['Current', 'Pending', 'Expired', 'To be expired', 'NA'];
                             </button>
                             <div class="mt-4 text-gray-600">
                                 <p>Total courses: <?= count($courses) ?></p>
-                                <p class="text-sm">Note: Only courses with dates or non-NA status will be saved</p>
+                                <p class="text-sm">Note: Only courses with dates or non-NA status will be saved; unchanged rows are skipped automatically.</p>
                             </div>
                         </div>
                     </form>

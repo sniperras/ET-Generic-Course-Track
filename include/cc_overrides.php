@@ -55,11 +55,9 @@ function load_cc_position_overrides(PDO $pdo): array
             // Find existing bucket for (cc, dept, pos)
             $found = false;
             foreach ($map as $idx => $bucket) {
-                if (
-                    $bucket['cost_center'] === $cc &&
+                if ($bucket['cost_center'] === $cc &&
                     $bucket['department'] === $dept &&
-                    $bucket['position_match'] === $pos
-                ) {
+                    $bucket['position_match'] === $pos) {
 
                     $map[$idx][$rt][$crs] = true;
                     $found = true;

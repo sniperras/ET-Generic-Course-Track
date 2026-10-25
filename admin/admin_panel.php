@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 
 require_once __DIR__ . '/../include/db_connect.php';
 require_once __DIR__ . '/../include/auth.php';
+require_once __DIR__ . '/../include/tracker.php';
 
 // Handle password change (logged-in users only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_own_password'])) {
@@ -54,6 +55,7 @@ $allowed_pages = [
   'import_training',
   'training_disputes_manage',
   '1&status=open',
+  'system',
   'users'
 ];
 
@@ -61,9 +63,11 @@ $allowed_pages = [
 $page_raw = $_GET['page'] ?? 'dashboard';
 $page = in_array($page_raw, $allowed_pages, true) ? $page_raw : 'dashboard';
 
-// Auth gate: public pages skip login, everything else requires it
-// (requirePageAccess internally calls requireAdmin() for protected pages)
+// Auth gate — MUST run before tracking so $_SESSION reflects the real user
 requirePageAccess($page);
+
+// ── NOW track the visit — session is fully populated ──
+tracker_log_visit($pdo);
 
 $current_user_role = $_SESSION['user_role'] ?? '';
 
@@ -92,7 +96,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
   <meta charset="utf-8">
 
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Ethiopian Airlines Generic Course Track</title>
+  <title>MRO Employees Training Tracker</title>
   <link rel="icon" type="image/png" href="../img/ethiopian_logo.ico">
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -107,7 +111,7 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
   <header class="bg-[#588D01] text-white shadow-lg">
     <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
       <img src="../img/logo.png" alt="Logo" class="h-[3.5rem] w-auto" onerror="this.style.display='none'">
-      <h1 class="text-xl font-bold">Ethiopian Airlines Generic Course Track</h1>
+      <h1 class="text-xl font-bold">MRO Employees Training Tracker</h1>
       <div class="flex items-center gap-6">
         <span>Welcome, <strong><?= htmlspecialchars($_SESSION['admin_name'] ?? 'Guest') ?></strong></span>
         <span class="text-sm bg-[#588D01] text-white px-3 py-1 rounded-full"><?= strtoupper($current_user_role) ?></span>
@@ -138,7 +142,8 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           'import'    => 'Import Employee Excel',
           'import_training' => 'Import Records Excel',
           'training_disputes_manage' => 'Manage Training Disputes',
-          'users'     => 'Users'
+          'users'     => 'Users',
+          'system'    => 'System'
         ];
 
         // Guests see only public pages
@@ -208,6 +213,9 @@ if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQ
           break;
         case 'users':
           include __DIR__ . '/users.php';
+          break;
+        case 'system':
+          include __DIR__ . '/system.php';
           break;
         case 'records':
           include __DIR__ . '/records.php';
