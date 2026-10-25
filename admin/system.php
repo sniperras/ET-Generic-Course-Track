@@ -1,6 +1,7 @@
 <?php
 // =================================================================
 // system.php — System Visit Analytics Dashboard
+// (included from admin_panel.php via ?page=system)
 // =================================================================
 
 if (session_status() === PHP_SESSION_NONE) session_start();
@@ -28,8 +29,14 @@ if ($login_filter !== 'all') {
 }
 $where_sql = 'WHERE ' . implode(' AND ', $where_parts);
 
+$debug_where = $login_filter === 'all'
+    ? "All visitors · last {$range_days} day(s)"
+    : ($login_filter === 'guest'
+        ? "Guests only · last {$range_days} day(s)"
+        : "Logged-in only · last {$range_days} day(s)");
+
 /* -----------------------------------------------------------------
-   Headline KPIs
+   KPI totals
    ----------------------------------------------------------------- */
 $kpis = [
     'total' => 0,
@@ -39,11 +46,10 @@ $kpis = [
     'avg_dwell' => 0,
     'avg_scroll' => 0,
     'clicks' => 0,
-    'downloads' => 0
+    'downloads' => 0,
 ];
-
 try {
-    $row = $pdo->prepare("
+    $stmt = $pdo->prepare("
         SELECT
             COUNT(*)                                       AS total,
             SUM(login_status='guest')                      AS guest,
@@ -56,19 +62,18 @@ try {
         FROM system_visit_logs
         $where_sql
     ");
-    $row->execute($params);
-    $k = $row->fetch(PDO::FETCH_ASSOC);
+    $stmt->execute($params);
+    $k = $stmt->fetch(PDO::FETCH_ASSOC);
     if ($k) $kpis = array_merge($kpis, $k);
 } catch (Throwable $e) {
 }
 
 /* -----------------------------------------------------------------
-   Daily visit trend (last N days, gaps filled with 0)
+   Daily visit trend
    ----------------------------------------------------------------- */
 $daily_labels = [];
 $daily_guest = [];
 $daily_user  = [];
-$daily_totals = [];
 try {
     $stmt = $pdo->prepare("
         SELECT DATE(created_at) AS d,
@@ -88,26 +93,23 @@ try {
         $daily_labels[] = date('M j', strtotime($d));
         $daily_guest[]  = (int)($map[$d]['g'] ?? 0);
         $daily_user[]   = (int)($map[$d]['u'] ?? 0);
-        $daily_totals[] = (int)($map[$d]['g'] ?? 0) + (int)($map[$d]['u'] ?? 0);
     }
 } catch (Throwable $e) {
 }
 
 /* -----------------------------------------------------------------
-   Login status distribution (pie chart)
+   Login status distribution
    ----------------------------------------------------------------- */
 $pie_labels = ['Guest', 'Logged in'];
 $pie_values = [(int)$kpis['guest'], (int)$kpis['logged_in']];
 
 /* -----------------------------------------------------------------
-   Browser breakdown (top 6)
+   Browser breakdown
    ----------------------------------------------------------------- */
 $browser_labels = [];
 $browser_values = [];
 try {
-    $stmt = $pdo->prepare("
-        SELECT user_agent FROM system_visit_logs $where_sql
-    ");
+    $stmt = $pdo->prepare("SELECT user_agent FROM system_visit_logs $where_sql");
     $stmt->execute($params);
     $browsers = ['Chrome' => 0, 'Firefox' => 0, 'Safari' => 0, 'Edge' => 0, 'Opera' => 0, 'Other' => 0];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -134,9 +136,7 @@ try {
 $os_labels = [];
 $os_values = [];
 try {
-    $stmt = $pdo->prepare("
-        SELECT user_agent FROM system_visit_logs $where_sql
-    ");
+    $stmt = $pdo->prepare("SELECT user_agent FROM system_visit_logs $where_sql");
     $stmt->execute($params);
     $os = ['Windows' => 0, 'macOS' => 0, 'Linux' => 0, 'Android' => 0, 'iOS' => 0, 'Other' => 0];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -158,7 +158,7 @@ try {
 }
 
 /* -----------------------------------------------------------------
-   Top countries (if geo lookup is populated)
+   Top countries
    ----------------------------------------------------------------- */
 $country_labels = [];
 $country_values = [];
@@ -180,7 +180,7 @@ try {
 }
 
 /* -----------------------------------------------------------------
-   Hourly activity heatmap (last 7 days × 24 hours)
+   Hourly heatmap
    ----------------------------------------------------------------- */
 $heat = array_fill(0, 7, array_fill(0, 24, 0));
 try {
@@ -193,14 +193,14 @@ try {
     ");
     $stmt->execute($login_filter !== 'all' ? [$login_filter] : []);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $d = ((int)$r['dow'] + 5) % 7; // Mon=0..Sun=6
+        $d = ((int)$r['dow'] + 5) % 7;
         $heat[$d][(int)$r['h']] = (int)$r['n'];
     }
 } catch (Throwable $e) {
 }
 
 /* -----------------------------------------------------------------
-   Latest visit log (paginated)
+   Paginated log list
    ----------------------------------------------------------------- */
 $page = max(1, (int)($_GET['p'] ?? 1));
 $per_page = 25;
@@ -214,8 +214,7 @@ try {
     $total_logs = (int)$cnt->fetchColumn();
 
     $stmt = $pdo->prepare("
-        SELECT *
-        FROM system_visit_logs
+        SELECT * FROM system_visit_logs
         $where_sql
         ORDER BY log_id DESC
         LIMIT $per_page OFFSET $offset
@@ -228,12 +227,13 @@ try {
 $total_pages = max(1, (int)ceil($total_logs / $per_page));
 
 /* -----------------------------------------------------------------
-   Helpers for display
+   Helpers
    ----------------------------------------------------------------- */
 function h($v): string
 {
     return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 }
+
 function browser_icon(string $ua): string
 {
     if (stripos($ua, 'Edg') !== false)     return '🌐 Edge';
@@ -258,12 +258,25 @@ function status_badge(string $s): string
         ? '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Logged in</span>'
         : '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">Guest</span>';
 }
+
+// Build admin_panel.php URLs that preserve page=system + all filters
+function sys_url(array $overrides = []): string
+{
+    $q = array_merge([
+        'page'  => 'system',
+        'login' => $_GET['login'] ?? 'all',
+        'days'  => $_GET['days']  ?? 7,
+        'p'     => $_GET['p']     ?? 1,
+    ], $overrides);
+    return 'admin_panel.php?' . http_build_query($q);
+}
 ?>
 <!doctype html>
 <html lang="en">
 
 <head>
     <meta charset="utf-8">
+
     <title>System Analytics — CourseTrack</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
@@ -296,27 +309,28 @@ function status_badge(string $s): string
 
 <body class="bg-slate-100 min-h-screen">
 
-    <!-- ── Header ── -->
     <header class="bg-[#588D01] text-white shadow">
         <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <img src="./img/logo.png" alt="Logo" class="h-10 w-auto" onerror="this.style.display='none'">
+                <img src="../img/logo.png" alt="Logo" class="h-10 w-auto" onerror="this.style.display='none'">
                 <div>
                     <h1 class="text-xl font-bold">System Analytics</h1>
                     <p class="text-xs opacity-80">Live visit tracking — server + client signals</p>
                 </div>
             </div>
-            <a href="index.php" class="bg-white text-[#588D01] px-4 py-2 rounded font-semibold shadow text-sm">← Back to Portal</a>
+            <a href="admin_panel.php?page=dashboard" class="bg-white text-[#588D01] px-4 py-2 rounded font-semibold shadow text-sm">← Back to Dashboard</a>
         </div>
     </header>
 
     <main class="max-w-7xl mx-auto px-6 py-8">
 
         <!-- ── Filter bar ── -->
-        <form method="GET" class="bg-white rounded-2xl shadow-lg p-5 mb-6 flex flex-wrap items-end gap-4">
+        <form method="GET" action="admin_panel.php" id="filterForm" class="bg-white rounded-2xl shadow-lg p-5 mb-6 flex flex-wrap items-end gap-4">
+            <input type="hidden" name="page" value="system">
+
             <div>
                 <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Login status</label>
-                <select name="login" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
+                <select name="login" id="loginSelect" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
                     <option value="all" <?= $login_filter === 'all'       ? 'selected' : '' ?>>All visitors</option>
                     <option value="guest" <?= $login_filter === 'guest'     ? 'selected' : '' ?>>Non-logged-in (guests)</option>
                     <option value="logged_in" <?= $login_filter === 'logged_in' ? 'selected' : '' ?>>Logged-in users</option>
@@ -324,15 +338,33 @@ function status_badge(string $s): string
             </div>
             <div>
                 <label class="block text-xs font-semibold text-slate-500 mb-1 uppercase tracking-wide">Range</label>
-                <select name="days" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
+                <select name="days" id="daysSelect" class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">
                     <?php foreach ([1 => 'Last 24h', 7 => 'Last 7 days', 14 => 'Last 14 days', 30 => 'Last 30 days', 90 => 'Last 90 days'] as $v => $lbl): ?>
                         <option value="<?= $v ?>" <?= $range_days == $v ? 'selected' : '' ?>><?= $lbl ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <button class="bg-[#588D01] hover:bg-[#456f01] text-white px-4 py-2 rounded-lg text-sm font-semibold">Apply</button>
-            <a href="?login=all&days=7" class="text-sm text-slate-500 hover:text-slate-800 underline">Reset</a>
+            <button type="submit" class="bg-[#588D01] hover:bg-[#456f01] text-white px-4 py-2 rounded-lg text-sm font-semibold">Apply</button>
+            <a href="admin_panel.php?page=system&login=all&days=7" class="text-sm text-slate-500 hover:text-slate-800 underline">Reset</a>
+
+            <div class="ml-auto text-xs text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full font-mono">
+                <?= h($debug_where) ?>
+            </div>
         </form>
+
+        <!-- ── Active filter pill ── -->
+        <div class="mb-4 flex items-center gap-2 text-sm flex-wrap">
+            <span class="text-slate-500">Showing:</span>
+            <?php if ($login_filter === 'guest'): ?>
+                <span class="px-2 py-1 bg-slate-200 text-slate-700 rounded-full font-semibold">🕶️ Guests only</span>
+            <?php elseif ($login_filter === 'logged_in'): ?>
+                <span class="px-2 py-1 bg-green-200 text-green-800 rounded-full font-semibold">🟢 Logged-in only</span>
+            <?php else: ?>
+                <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold">👥 All visitors</span>
+            <?php endif; ?>
+            <span class="text-slate-500">·</span>
+            <span class="px-2 py-1 bg-amber-100 text-amber-800 rounded-full font-semibold">📅 Last <?= (int)$range_days ?> day(s)</span>
+        </div>
 
         <!-- ── KPI cards ── -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -370,18 +402,16 @@ function status_badge(string $s): string
             </div>
         </div>
 
-        <!-- ── Charts grid ── -->
+        <!-- ── Charts ── -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <div class="lg:col-span-2 bg-white rounded-2xl shadow p-5">
                 <h2 class="font-bold text-slate-700 mb-3">Daily visits</h2>
                 <div style="height:320px"><canvas id="trendChart"></canvas></div>
             </div>
-
             <div class="bg-white rounded-2xl shadow p-5">
                 <h2 class="font-bold text-slate-700 mb-3">Login status</h2>
                 <div style="height:320px"><canvas id="loginChart"></canvas></div>
             </div>
-
             <div class="bg-white rounded-2xl shadow p-5">
                 <h2 class="font-bold text-slate-700 mb-3">Browsers</h2>
                 <div style="height:260px"><canvas id="browserChart"></canvas></div>
@@ -465,25 +495,17 @@ function status_badge(string $s): string
                         <?php endif; ?>
                         <?php foreach ($logs as $r): ?>
                             <tr class="log-row">
-                                <td class="px-3 py-2 whitespace-nowrap font-mono text-xs">
-                                    <?= h(date('Y-m-d H:i:s', strtotime($r['created_at']))) ?>
-                                </td>
+                                <td class="px-3 py-2 whitespace-nowrap font-mono text-xs"><?= h(date('Y-m-d H:i:s', strtotime($r['created_at']))) ?></td>
                                 <td class="px-3 py-2"><?= status_badge($r['login_status']) ?></td>
                                 <td class="px-3 py-2 text-slate-700">
                                     <?= $r['user_name'] ? h($r['user_name']) : '<span class="text-slate-400">—</span>' ?>
-                                    <?php if ($r['user_id']): ?>
-                                        <div class="text-[10px] text-slate-400 font-mono"><?= h($r['user_id']) ?></div>
-                                    <?php endif; ?>
+                                    <?php if ($r['user_id']): ?><div class="text-[10px] text-slate-400 font-mono"><?= h($r['user_id']) ?></div><?php endif; ?>
                                 </td>
                                 <td class="px-3 py-2 font-mono text-xs"><?= h($r['ip_address'] ?? '') ?></td>
                                 <td class="px-3 py-2 whitespace-nowrap"><?= browser_icon((string)$r['user_agent']) ?></td>
                                 <td class="px-3 py-2 whitespace-nowrap"><?= os_icon((string)$r['user_agent']) ?></td>
                                 <td class="px-3 py-2 whitespace-nowrap font-mono text-xs">
-                                    <?php if ($r['screen_w']): ?>
-                                        <?= (int)$r['screen_w'] ?>×<?= (int)$r['screen_h'] ?>
-                                    <?php else: ?>
-                                        <span class="text-slate-400">—</span>
-                                    <?php endif; ?>
+                                    <?= $r['screen_w'] ? ((int)$r['screen_w'] . '×' . (int)$r['screen_h']) : '<span class="text-slate-400">—</span>' ?>
                                 </td>
                                 <td class="px-3 py-2 whitespace-nowrap text-xs">
                                     <?= $r['connection_type'] ? h(strtoupper($r['connection_type'])) : '<span class="text-slate-400">—</span>' ?>
@@ -496,22 +518,19 @@ function status_badge(string $s): string
                                 </td>
                                 <td class="px-3 py-2 text-xs"><?= (int)$r['dwell_seconds'] ?>s</td>
                                 <td class="px-3 py-2 text-xs"><?= (int)$r['clicks'] ?></td>
-                                <td class="px-3 py-2 text-xs text-slate-500 max-w-[220px] truncate" title="<?= h($r['request_uri'] ?? '') ?>">
-                                    <?= h($r['request_uri'] ?? '') ?>
-                                </td>
+                                <td class="px-3 py-2 text-xs text-slate-500 max-w-[220px] truncate" title="<?= h($r['request_uri'] ?? '') ?>"><?= h($r['request_uri'] ?? '') ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
 
-            <!-- ── Pagination ── -->
             <?php if ($total_pages > 1): ?>
                 <div class="px-5 py-3 border-t flex items-center justify-between text-sm">
-                    <a href="?login=<?= urlencode($login_filter) ?>&days=<?= $range_days ?>&p=<?= max(1, $page - 1) ?>"
+                    <a href="<?= h(sys_url(['p' => max(1, $page - 1)])) ?>"
                         class="px-3 py-1 rounded border <?= $page <= 1 ? 'opacity-40 pointer-events-none' : 'hover:bg-slate-50' ?>">← Prev</a>
                     <span class="text-slate-500">Page <?= $page ?> of <?= $total_pages ?></span>
-                    <a href="?login=<?= urlencode($login_filter) ?>&days=<?= $range_days ?>&p=<?= min($total_pages, $page + 1) ?>"
+                    <a href="<?= h(sys_url(['p' => min($total_pages, $page + 1)])) ?>"
                         class="px-3 py-1 rounded border <?= $page >= $total_pages ? 'opacity-40 pointer-events-none' : 'hover:bg-slate-50' ?>">Next →</a>
                 </div>
             <?php endif; ?>
@@ -523,31 +542,30 @@ function status_badge(string $s): string
     </footer>
 
     <script>
-        const daily_labels = <?= json_encode($daily_labels) ?>;
-        const daily_guest = <?= json_encode($daily_guest) ?>;
-        const daily_user = <?= json_encode($daily_user) ?>;
+        document.getElementById('loginSelect')?.addEventListener('change', () => document.getElementById('filterForm').submit());
+        document.getElementById('daysSelect')?.addEventListener('change', () => document.getElementById('filterForm').submit());
 
         new Chart(document.getElementById('trendChart'), {
             type: 'line',
             data: {
-                labels: daily_labels,
+                labels: <?= json_encode($daily_labels) ?>,
                 datasets: [{
                         label: 'Guests',
-                        data: daily_guest,
+                        data: <?= json_encode($daily_guest) ?>,
                         borderColor: '#94a3b8',
                         backgroundColor: 'rgba(148,163,184,.2)',
                         tension: .35,
                         fill: true,
-                        pointRadius: 3,
+                        pointRadius: 3
                     },
                     {
                         label: 'Logged in',
-                        data: daily_user,
+                        data: <?= json_encode($daily_user) ?>,
                         borderColor: '#16a34a',
                         backgroundColor: 'rgba(22,163,74,.2)',
                         tension: .35,
                         fill: true,
-                        pointRadius: 3,
+                        pointRadius: 3
                     }
                 ]
             },

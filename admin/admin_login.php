@@ -9,9 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'];
 
     if (loginAdmin($username, $password)) {
-        // THEN log the visit — now it will be recorded as logged_in
-        require_once __DIR__ . '/../include/tracker.php';
-        tracker_log_visit($pdo);
+
         header("Location: admin_panel.php");
         exit();
     } else {

@@ -1535,6 +1535,8 @@ foreach ($courses as $c) {
     <meta charset="utf-8">
 
 
+
+
     <title>Department Training GAP Report</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://cdn.tailwindcss.com"></script>

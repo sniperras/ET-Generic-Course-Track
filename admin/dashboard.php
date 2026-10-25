@@ -950,6 +950,8 @@ $next_cache_update = $use_cache ? date('H:i:s', time() + ($CACHE_TTL - (time() -
     <meta charset="utf-8">
 
 
+
+
     <title>Dashboard — GenericCourseTrack (Stats)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" href="../img/ethiopian_logo.ico">

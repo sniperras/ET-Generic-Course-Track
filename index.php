@@ -44,7 +44,6 @@ error_reporting(E_ALL);
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 require_once __DIR__ . '/include/db_connect.php';
-
 require_once __DIR__ . '/include/cc_overrides.php';
 
 // Error handling for AJAX - disable error output for JSON responses
@@ -746,6 +745,8 @@ tracker_log_visit($pdo);
 
 
 
+
+
     <title>Ethiopian Airlines CourseTrack | Employee Training Status</title>
     <meta name="description" content="Use Ethiopian Airlines CourseTrack to check recorded employee course completion, training expiry dates, and submitted complaint status.">
     <meta name="robots" content="<?= $portalRobotsDirective ?>">
@@ -924,6 +925,14 @@ tracker_log_visit($pdo);
                         <span class="text-blue-300 text-xs">↗</span>
                     </a>
                 </li>
+                <li>
+                    <a href="download.php"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-blue-50 hover:bg-blue-700 hover:text-white transition-colors font-medium">
+                        <span>📥</span>
+                        <span>ETTPM Manual</span>
+                        <span class="text-blue-300 text-xs">↓</span>
+                    </a>
+                </li>
             </ul>
         </div>
     </nav>
@@ -1088,9 +1097,7 @@ tracker_log_visit($pdo);
                                         Ethiopian MRO | ETTPM &nbsp;•&nbsp;
                                         <b class="text-[#FFB800]">Train • Qualify • Fly Safe</b>
                                     </small>
-                                    <small class="text-xs text-[#C9EBD6] block mt-1" id="tnpHint">
-                                        Tap each point to tick it off.
-                                    </small>
+
                                 </div>
                             </div>
                         </div>

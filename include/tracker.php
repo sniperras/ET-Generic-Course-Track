@@ -196,6 +196,7 @@ function tracker_log_visit(?PDO $pdo): void
 
     // ── Skip static assets (css, js, images, fonts, media, downloads) ──
     $uri_path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    $qs = (string)($_SERVER['QUERY_STRING'] ?? '');
     $ext = strtolower(pathinfo($uri_path, PATHINFO_EXTENSION));
     if ($ext !== '' && in_array($ext, [
         'css',
@@ -253,8 +254,12 @@ function tracker_log_visit(?PDO $pdo): void
         return;
     }
 
-    // ── Skip the analytics dashboard itself (would inflate its own numbers) ──
+    // ── Skip the analytics dashboard itself ──
+    // system.php is included BY admin_panel.php?page=system, so the
+    // real URL never contains "/system.php" — we have to check the
+    // query string for page=system instead.
     if (strpos($uri_path, '/system.php') !== false) return;
+    if (strpos($uri_path, '/admin_panel.php') !== false && strpos($qs, 'page=system') !== false) return;
 
     // ── Skip common non-page paths ──
     foreach (['/include/', '/vendor/', '/Script/', '/TCPDF/', '/logs/', '/robots.txt', '/sitemap.xml'] as $skip) {
