@@ -231,6 +231,35 @@ def main():
         log_message("\n[AUTOMATION FAILED] Database import encountered an error!", log_file, print_to_console=not SILENT_MODE)
         log_message(f"Check log file for details: {log_file}", log_file, print_to_console=not SILENT_MODE)
         sys.exit(1)
+        
+    time.sleep(3)
+    
+    # Step 1: Run CSV Scraper
+    log_message("[STEP 1 OF 3] Starting CSV scraper...", log_file, print_to_console=not SILENT_MODE)
+    if not run_method("CSVScraperCertificate.py", log_file):
+        log_message("\n[AUTOMATION FAILED] CSV scraper encountered an error!", log_file, print_to_console=not SILENT_MODE)
+        log_message(f"Check log file for details: {log_file}", log_file, print_to_console=not SILENT_MODE)
+        sys.exit(1)
+    
+    # Brief pause between scripts
+    time.sleep(3)
+    
+    # Step 2: Run FTP Uploader
+    log_message("\n[STEP 2 OF 3] Starting FTP uploader...", log_file, print_to_console=not SILENT_MODE)
+    if not run_method("FTPUploader.py", log_file):
+        log_message("\n[AUTOMATION FAILED] FTP uploader encountered an error!", log_file, print_to_console=not SILENT_MODE)
+        log_message(f"Check log file for details: {log_file}", log_file, print_to_console=not SILENT_MODE)
+        sys.exit(1)
+    
+    # Brief pause before database import
+    time.sleep(3)
+    
+    # Step 3: Run Database Importer
+    log_message("\n[STEP 3 OF 3] Starting database import...", log_file, print_to_console=not SILENT_MODE)
+    if not run_method("auto_import_to_db.py", log_file):
+        log_message("\n[AUTOMATION FAILED] Database import encountered an error!", log_file, print_to_console=not SILENT_MODE)
+        log_message(f"Check log file for details: {log_file}", log_file, print_to_console=not SILENT_MODE)
+        sys.exit(1)
     
     # Success!
     log_message("\n" + "="*70, log_file, print_to_console=not SILENT_MODE)

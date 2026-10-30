@@ -191,7 +191,35 @@ def main():
         log_message("\n[AUTOMATION FAILED] Database import encountered an error!", log_file)
         log_message(f"Check log file for details: {log_file}", log_file)
         sys.exit(1)
-    
+     # Step 1.1: Run CSV Scraper
+        log_message("[STEP 1 OF 3] Starting CSV scraper...", log_file)
+        if not run_script_with_live_output("CSVScraperCertificate.py", log_file):
+            log_message("\n[AUTOMATION FAILED] CSV scraper encountered an error!", log_file)
+            log_message(f"Check log file for details: {log_file}", log_file)
+            sys.exit(1)
+        
+        # Brief pause between scripts
+        log_message("\nWaiting 3 seconds before starting FTP upload...", log_file)
+        time.sleep(3)
+        
+        # Step 2.2: Run FTP Uploader
+        log_message("\n[STEP 2 OF 3] Starting FTP uploader...", log_file)
+        if not run_script_with_live_output("FTPUploader.py", log_file):
+            log_message("\n[AUTOMATION FAILED] FTP uploader encountered an error!", log_file)
+            log_message(f"Check log file for details: {log_file}", log_file)
+            sys.exit(1)
+        
+        # Brief pause before database import
+        log_message("\nWaiting 3 seconds before starting database import...", log_file)
+        time.sleep(3)
+        
+        # Step 3.3: Run Database Importer
+        log_message("\n[STEP 3 OF 3] Starting database import...", log_file)
+        if not run_script_with_live_output("auto_import_to_db.py", log_file):
+            log_message("\n[AUTOMATION FAILED] Database import encountered an error!", log_file)
+            log_message(f"Check log file for details: {log_file}", log_file)
+            sys.exit(1)
+        
     # Success!
     log_message("\n" + "="*70, log_file)
     log_message("[SUCCESS] AUTOMATION COMPLETED SUCCESSFULLY!", log_file)
